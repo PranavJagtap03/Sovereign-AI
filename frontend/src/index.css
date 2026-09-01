@@ -1,0 +1,335 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Global Reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #0A1628;
+  color: #E8F0FE;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0A1628; }
+::-webkit-scrollbar-thumb { background: rgba(0,200,150,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,200,150,0.6); }
+
+/* ─── Typography ──────────────────────────────────────────────────────────── */
+.font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+
+/* ─── Keyframe Animations ─────────────────────────────────────────────────── */
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,200,150,0.4); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 8px rgba(0,200,150,0); }
+}
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes border-glow {
+  0%, 100% { border-color: rgba(0,200,150,0.3); }
+  50%       { border-color: rgba(0,200,150,0.9); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes terminal-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes data-flow {
+  0% { stroke-dashoffset: 100; }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* ─── Utility Classes ─────────────────────────────────────────────────────── */
+.animate-pulse-green { animation: pulse-green 2s ease-in-out infinite; }
+.animate-step-in { animation: step-in 0.4s ease-out forwards; }
+.animate-border-glow { animation: border-glow 2s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+.animate-slide-up { animation: slide-up 0.4s ease-out forwards; }
+.animate-spin-slow { animation: spin-slow 2s linear infinite; }
+
+/* ─── Card base ───────────────────────────────────────────────────────────── */
+.card {
+  background: #111E36;
+  border: 1px solid rgba(0,200,150,0.15);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.card-active {
+  border-color: rgba(0,200,150,0.5);
+  box-shadow: 0 0 20px rgba(0,200,150,0.15), 0 4px 24px rgba(0,0,0,0.4);
+}
+.card-glow {
+  animation: border-glow 2s ease-in-out infinite;
+}
+
+/* ─── Terminal panel ──────────────────────────────────────────────────────── */
+.terminal {
+  background: #0A1628;
+  border: 1px solid rgba(0,200,150,0.2);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.terminal-cursor::after {
+  content: '█';
+  animation: terminal-blink 1s step-end infinite;
+  color: #00C896;
+}
+
+/* ─── Button styles ───────────────────────────────────────────────────────── */
+.btn-primary {
+  background: #00C896;
+  color: #0A1628;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-primary:hover {
+  background: #00b085;
+  box-shadow: 0 0 20px rgba(0,200,150,0.4);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #8899BB;
+  border: 1px solid rgba(136,153,187,0.3);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-ghost:hover {
+  color: #E8F0FE;
+  border-color: rgba(0,200,150,0.4);
+  background: rgba(0,200,150,0.05);
+}
+
+/* ─── Pill buttons (output format selector) ───────────────────────────────── */
+.pill { 
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(136,153,187,0.25);
+  background: transparent;
+  color: #8899BB;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.pill:hover {
+  border-color: rgba(0,200,150,0.4);
+  color: #E8F0FE;
+}
+.pill.active {
+  background: rgba(0,200,150,0.15);
+  border-color: #00C896;
+  color: #00C896;
+  font-weight: 600;
+}
+
+/* ─── Status badge ────────────────────────────────────────────────────────── */
+.badge-success {
+  background: rgba(34,197,94,0.15);
+  color: #22C55E;
+  border: 1px solid rgba(34,197,94,0.3);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-warn {
+  background: rgba(245,166,35,0.15);
+  color: #F5A623;
+  border: 1px solid rgba(245,166,35,0.3);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-danger {
+  background: rgba(239,68,68,0.15);
+  color: #EF4444;
+  border: 1px solid rgba(239,68,68,0.3);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-accent {
+  background: rgba(0,200,150,0.15);
+  color: #00C896;
+  border: 1px solid rgba(0,200,150,0.3);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ─── Table ───────────────────────────────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8899BB;
+  border-bottom: 1px solid rgba(0,200,150,0.1);
+}
+.data-table td {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #E8F0FE;
+}
+.data-table tr:hover td {
+  background: rgba(0,200,150,0.03);
+}
+
+/* ─── VRAM bar ────────────────────────────────────────────────────────────── */
+.vram-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.vram-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #00C896, #0F8FFF);
+  transition: width 0.8s ease;
+}
+
+/* ─── Shimmer loading ─────────────────────────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(90deg, #111E36 25%, #1A2E4A 50%, #111E36 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ─── Drag and drop zone ──────────────────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed rgba(0,200,150,0.25);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: rgba(0,200,150,0.6);
+  background: rgba(0,200,150,0.04);
+}
+
+/* ─── SVG arrows ──────────────────────────────────────────────────────────── */
+.flow-arrow {
+  stroke-dasharray: 8 4;
+  animation: data-flow 1.5s linear infinite;
+}
+
+/* ─── Demo mode badge ─────────────────────────────────────────────────────── */
+.demo-badge {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(245,166,35,0.15);
+  border: 1px solid rgba(245,166,35,0.4);
+  color: #F5A623;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  z-index: 999;
+}
+
+/* ─── Sidebar nav item ────────────────────────────────────────────────────── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #8899BB;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-item:hover {
+  background: rgba(0,200,150,0.08);
+  color: #E8F0FE;
+}
+.nav-item.active {
+  background: rgba(0,200,150,0.12);
+  color: #00C896;
+  border: 1px solid rgba(0,200,150,0.2);
+}
+
+/* ─── React loop item ─────────────────────────────────────────────────────── */
+.react-thought {
+  background: rgba(91,141,239,0.08);
+  border-left: 3px solid rgba(91,141,239,0.5);
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.react-action {
+  background: rgba(0,200,150,0.08);
+  border-left: 3px solid rgba(0,200,150,0.5);
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.react-observation {
+  background: rgba(245,166,35,0.06);
+  border-left: 3px solid rgba(245,166,35,0.4);
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
