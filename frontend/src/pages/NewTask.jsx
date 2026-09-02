@@ -17,7 +17,23 @@ export default function NewTask() {
   const [selectedRole, setSelectedRole] = useState('inspector');
   const [approvalStatus, setApprovalStatus] = useState('pending'); // 'pending' | 'approved' | 'rejected'
   const [liveMode, setLiveMode] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const traceRef = useRef(null);
+
+  useEffect(() => {
+    let interval = null;
+    if (isLoading && liveMode) {
+      setElapsedSeconds(0);
+      interval = setInterval(() => {
+        setElapsedSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading, liveMode]);
 
   useEffect(() => {
     if (result) {
@@ -273,13 +289,19 @@ export default function NewTask() {
               animate={{ opacity: 1, y: 0 }}
               className="mb-4 p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 text-purple-200 shadow-lg"
             >
-              <div className="flex items-center gap-3 font-semibold text-xs sm:text-sm text-purple-300">
-                <Loader2 size={18} className="animate-spin text-purple-400 flex-shrink-0" />
-                <span>🧠 Running DeepSeek-R1 locally on GPU — reasoning models take 15-25s, please wait...</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3 font-semibold text-xs sm:text-sm text-purple-300">
+                  <Loader2 size={18} className="animate-spin text-purple-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                  <span>🧠 Running DeepSeek-R1 locally on GPU — reasoning models can take 20-60s depending on query complexity. Processing...</span>
+                </div>
+                <div className="flex-shrink-0 self-start sm:self-auto font-mono text-xs font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5 animate-pulse">
+                  <Clock size={12} className="text-purple-400" />
+                  <span>{elapsedSeconds}s elapsed</span>
+                </div>
               </div>
-              <div className="mt-2 text-[11px] text-purple-300/70 font-mono pl-7 space-y-0.5">
-                <div>• Generating token stream & reasoning trace &lt;think&gt;...&lt;/think&gt;</div>
-                <div>• Local Ollama daemon: http://localhost:11434 (0 bytes outbound)</div>
+              <div className="mt-2.5 text-[11px] text-purple-300/70 font-mono pl-7 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span>• Generating token stream & reasoning trace &lt;think&gt;...&lt;/think&gt;</span>
+                <span>• Local Ollama: http://localhost:11434 (0 bytes outbound)</span>
               </div>
             </motion.div>
           )}

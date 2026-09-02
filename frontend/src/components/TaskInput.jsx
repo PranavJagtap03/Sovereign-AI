@@ -233,7 +233,7 @@ export default function TaskInput({
           </div>
           <p className="text-[11px] text-text-muted mt-0.5">
             {liveMode
-              ? 'Real local DeepSeek-R1 reasoning on GPU (~15s) via Ollama'
+              ? 'Real local DeepSeek-R1 reasoning on GPU via Ollama'
               : 'Zero-latency air-gapped simulation for instant demoing'}
           </p>
         </div>
