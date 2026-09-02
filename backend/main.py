@@ -29,6 +29,7 @@ from guardian import guardian_review
 from execution_guard import validate_tool_call, check_resource_budget, parse_action_call
 from sandbox import execute_in_sandbox
 from output_generator import generate_docx_report, parse_markdown_to_sections
+from real_llm import call_ollama, check_ollama_health
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ class AgentRunRequest(BaseModel):
     file_name: Optional[str] = None
     scenario: Optional[str] = None  # pre-built demo scenario key
     user_role: str = "inspector"    # RBAC role: inspector, engineer, manager, admin
+    live_mode: bool = False
 
 
 class AgentRunResponse(BaseModel):
@@ -86,6 +88,11 @@ class AgentRunResponse(BaseModel):
     stages_total: int = 13
     stages_pipeline: list = []
     stage_results: dict = {}
+    reasoning_trace: Optional[str] = None
+    live_mode: bool = False
+    live_inference_attempted: bool = False
+    fell_back_to_demo: bool = False
+    live_fallback_reason: Optional[str] = None
 
 
 class DocxGenerateRequest(BaseModel):
@@ -625,6 +632,40 @@ async def run_agent(request: AgentRunRequest):
 
     # ─── Stage 8: Guardian Agent (Independent Review) ─────────────────────────
     final_response = get_demo_response(task_type)
+    base_ms = random.randint(2800, 4200)
+    reasoning_trace = None
+    live_inference_attempted = False
+    fell_back_to_demo = False
+    live_fallback_reason = None
+    real_inference_time_ms = 0
+    real_model_name = None
+
+    if request.live_mode:
+        live_inference_attempted = True
+        if task_type in ("text", "analysis"):
+            if check_ollama_health():
+                print(f"[LIVE MODE] Dispatching task to local Ollama (DeepSeek-R1)...")
+                ollama_res = call_ollama(prompt=request.task, model="deepseek-r1:latest", timeout_s=60)
+                if ollama_res.get("success"):
+                    final_response = ollama_res.get("final_answer") or final_response
+                    reasoning_trace = ollama_res.get("reasoning_trace")
+                    real_inference_time_ms = ollama_res.get("inference_time_ms", 0)
+                    real_model_name = ollama_res.get("model_used", "deepseek-r1:latest")
+                    base_ms += real_inference_time_ms
+                    model_info = dict(model_info)
+                    model_info["model"] = "DeepSeek-R1 (Local GPU)"
+                else:
+                    fell_back_to_demo = True
+                    live_fallback_reason = ollama_res.get("error", "Ollama inference error")
+                    print(f"[LIVE MODE FALLBACK] {live_fallback_reason}")
+            else:
+                fell_back_to_demo = True
+                live_fallback_reason = "Ollama daemon unreachable at http://localhost:11434"
+                print(f"[LIVE MODE FALLBACK] {live_fallback_reason}")
+        else:
+            fell_back_to_demo = True
+            live_fallback_reason = f"Live inference not available for task type '{task_type}'"
+
     if any(k in request.task.lower() for k in ["safe to operate", "overconfident", "without inspection"]):
         final_response = (
             "Equipment Telemetry Assessment:\n\n"
@@ -874,6 +915,21 @@ async def run_agent(request: AgentRunRequest):
         "stage_13": {"stage": 13, "name": STAGE_NAMES[13], "result": chain_verify}
     }
 
+    # Stage 13: Live Inference Audit entry if real GPU was used
+    if request.live_mode and not fell_back_to_demo:
+        append_log_entry(
+            event_type="STAGE_13_LIVE_INFERENCE_AUDIT",
+            details={
+                "stage": 13,
+                "inference_engine": "Ollama / DeepSeek-R1 (Local GPU)",
+                "model_used": real_model_name or "deepseek-r1:latest",
+                "inference_time_ms": real_inference_time_ms,
+                "reasoning_trace_present": bool(reasoning_trace),
+                "reasoning_trace_length": len(reasoning_trace or ""),
+                "status": "VERIFIED_LOCAL_EXECUTION"
+            }
+        )
+
     return {
         "steps": steps,
         "model_used": model_info["model"],
@@ -892,7 +948,12 @@ async def run_agent(request: AgentRunRequest):
         "stages_passed": stages_passed,
         "stages_total": 13,
         "stages_pipeline": stages_pipeline,
-        "stage_results": stage_results
+        "stage_results": stage_results,
+        "reasoning_trace": reasoning_trace,
+        "live_mode": request.live_mode,
+        "live_inference_attempted": live_inference_attempted,
+        "fell_back_to_demo": fell_back_to_demo,
+        "live_fallback_reason": live_fallback_reason
     }
 
 

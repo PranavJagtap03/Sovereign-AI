@@ -32,7 +32,9 @@ export default function TaskInput({
   initialTask = '',
   initialFormat = 'Word Doc',
   userRole = 'inspector',
-  onRoleChange
+  onRoleChange,
+  liveMode = false,
+  onLiveModeChange,
 }) {
   const [task, setTask] = useState(initialTask);
   const [format, setFormat] = useState(initialFormat);
@@ -66,7 +68,7 @@ export default function TaskInput({
 
   const handleSubmit = () => {
     if (!task.trim() && !file) return;
-    onSubmit({ task: task.trim(), format, file, user_role: role });
+    onSubmit({ task: task.trim(), format, file, user_role: role, live_mode: liveMode });
   };
 
   const handleKeyDown = (e) => {
@@ -208,21 +210,66 @@ export default function TaskInput({
         </div>
       </div>
 
+      {/* Inference Engine Mode Toggle */}
+      <div
+        className="p-3 rounded-lg border flex items-center justify-between transition-colors"
+        style={{
+          background: liveMode ? 'rgba(124, 58, 237, 0.1)' : 'rgba(26, 46, 74, 0.5)',
+          borderColor: liveMode ? 'rgba(139, 92, 246, 0.4)' : 'rgba(0, 200, 150, 0.2)'
+        }}
+      >
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-text-primary">Inference Engine</span>
+            {liveMode ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                🟢 LIVE GPU (Ollama)
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-accent/15 text-accent border border-accent/25">
+                ⚡ DEMO MODE (Mock)
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-text-muted mt-0.5">
+            {liveMode
+              ? 'Real local DeepSeek-R1 reasoning on GPU (~15s) via Ollama'
+              : 'Zero-latency air-gapped simulation for instant demoing'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onLiveModeChange && onLiveModeChange(!liveMode)}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+            liveMode ? 'bg-purple-600' : 'bg-slate-700'
+          }`}
+          id="live-mode-toggle"
+          title={liveMode ? 'Switch to Demo Mode (instant)' : 'Switch to Live Mode (DeepSeek-R1 on GPU)'}
+        >
+          <span
+            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              liveMode ? 'translate-x-5' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Submit */}
       <button
         id="run-agent-btn"
         onClick={handleSubmit}
         disabled={isLoading || (!task.trim() && !file)}
-        className="btn-primary w-full justify-center text-base py-3"
+        className="btn-primary w-full justify-center text-base py-3 transition-all"
+        style={liveMode ? { background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', borderColor: '#8b5cf6' } : {}}
       >
         {isLoading ? (
           <>
             <span className="animate-spin-slow inline-block">⚙️</span>
-            Running Agent...
+            {liveMode ? 'Running DeepSeek-R1 on GPU...' : 'Running Agent...'}
           </>
         ) : (
           <>
-            ▶ Run Agent
+            ▶ {liveMode ? 'Run Live DeepSeek-R1' : 'Run Agent (Demo)'}
           </>
         )}
       </button>

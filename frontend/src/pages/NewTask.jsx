@@ -16,6 +16,7 @@ export default function NewTask() {
   const [taskData, setTaskData] = useState({ task: '', format: 'Word Doc', file: null });
   const [selectedRole, setSelectedRole] = useState('inspector');
   const [approvalStatus, setApprovalStatus] = useState('pending'); // 'pending' | 'approved' | 'rejected'
+  const [liveMode, setLiveMode] = useState(false);
   const traceRef = useRef(null);
 
   useEffect(() => {
@@ -149,12 +150,13 @@ export default function NewTask() {
     }, 100);
   };
 
-  const handleSubmit = ({ task, format, file, user_role }) => {
+  const handleSubmit = ({ task, format, file, user_role, live_mode }) => {
     const roleToUse = user_role || selectedRole;
+    const isLive = live_mode ?? liveMode;
     setSelectedRole(roleToUse);
     setTaskData({ task, format, file });
     setApprovalStatus('pending');
-    run({ task, format, file, user_role: roleToUse });
+    run({ task, format, file, user_role: roleToUse, live_mode: isLive });
     setTimeout(() => {
       if (traceRef.current) {
         traceRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -257,11 +259,31 @@ export default function NewTask() {
             initialFormat={taskData.format}
             userRole={selectedRole}
             onRoleChange={setSelectedRole}
+            liveMode={liveMode}
+            onLiveModeChange={setLiveMode}
           />
         </div>
 
         {/* Right — Agent Trace */}
         <div ref={traceRef} className="card p-5 overflow-y-auto" style={{ maxHeight: '80vh' }}>
+          {/* Live GPU Inference in-flight banner */}
+          {isLoading && liveMode && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 text-purple-200 shadow-lg"
+            >
+              <div className="flex items-center gap-3 font-semibold text-xs sm:text-sm text-purple-300">
+                <Loader2 size={18} className="animate-spin text-purple-400 flex-shrink-0" />
+                <span>🧠 Running DeepSeek-R1 locally on GPU — reasoning models take 15-25s, please wait...</span>
+              </div>
+              <div className="mt-2 text-[11px] text-purple-300/70 font-mono pl-7 space-y-0.5">
+                <div>• Generating token stream & reasoning trace &lt;think&gt;...&lt;/think&gt;</div>
+                <div>• Local Ollama daemon: http://localhost:11434 (0 bytes outbound)</div>
+              </div>
+            </motion.div>
+          )}
+
           <AgentTrace
             steps={result?.steps}
             isRunning={isLoading}
@@ -380,9 +402,21 @@ export default function NewTask() {
                 </div>
               )}
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-                  📋 Generated Output Preview
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    📋 Generated Output Preview
+                  </h4>
+                  {result.live_mode && !result.fell_back_to_demo && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                      🟢 Live Local Inference (DeepSeek-R1)
+                    </span>
+                  )}
+                  {result.fell_back_to_demo && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40" title={result.live_fallback_reason}>
+                      ⚠️ Fallback: {result.live_fallback_reason}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="badge-success text-[10px]">✓ Ready</span>
                   <button
@@ -396,6 +430,24 @@ export default function NewTask() {
                   </button>
                 </div>
               </div>
+
+              {/* Collapsible DeepSeek-R1 Reasoning Trace */}
+              {result.reasoning_trace && (
+                <details className="mb-3 rounded-lg border border-purple-500/30 bg-purple-950/25 p-2.5 text-xs group" open>
+                  <summary className="cursor-pointer font-semibold text-purple-300 flex items-center justify-between select-none hover:text-purple-200">
+                    <span className="flex items-center gap-1.5">
+                      <span>🧠</span>
+                      <span>View Model's Reasoning Trace</span>
+                      <span className="text-[10px] font-mono text-purple-400/80">({result.reasoning_trace.length} chars)</span>
+                    </span>
+                    <span className="text-[10px] text-purple-400/60 font-mono">click to collapse</span>
+                  </summary>
+                  <div className="mt-2 p-2.5 rounded bg-black/60 text-[11px] font-mono text-purple-200/90 whitespace-pre-wrap leading-relaxed max-h-52 overflow-y-auto border border-purple-500/20">
+                    {result.reasoning_trace}
+                  </div>
+                </details>
+              )}
+
               <div className="text-xs text-text-muted font-mono whitespace-pre-wrap leading-5 max-h-48 overflow-y-auto">
                 {result.final_response.slice(0, 800)}
                 {result.final_response.length > 800 && '…'}
