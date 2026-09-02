@@ -283,28 +283,44 @@ export default function NewTask() {
         {/* Right — Agent Trace */}
         <div ref={traceRef} className="card p-5 overflow-y-auto" style={{ maxHeight: '80vh' }}>
           {/* Live GPU Inference in-flight banner */}
-          {isLoading && liveMode && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-4 p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 text-purple-200 shadow-lg"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-start sm:items-center gap-3 font-semibold text-xs sm:text-sm text-purple-300">
-                  <Loader2 size={18} className="animate-spin text-purple-400 flex-shrink-0 mt-0.5 sm:mt-0" />
-                  <span>🧠 Running DeepSeek-R1 locally on GPU — reasoning models can take 20-60s depending on query complexity. Processing...</span>
+          {isLoading && liveMode && (() => {
+            const isVisionTask = Boolean(taskData.file) || ['diagram', 'image', 'photo', 'drawing', 'inspection report', 'scan', 'visual', 'chart'].some(w => taskData.task.toLowerCase().includes(w));
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 text-purple-200 shadow-lg"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start sm:items-center gap-3 font-semibold text-xs sm:text-sm text-purple-300">
+                    <Loader2 size={18} className="animate-spin text-purple-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                    {isVisionTask ? (
+                      <span>👁️ Running Qwen2.5-VL locally on GPU — analyzing image, this may take a few seconds (or ~10s longer if switching from another loaded model)...</span>
+                    ) : (
+                      <span>🧠 Running DeepSeek-R1 locally on GPU — reasoning models can take 20-60s depending on query complexity. Processing...</span>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0 self-start sm:self-auto font-mono text-xs font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5 animate-pulse">
+                    <Clock size={12} className="text-purple-400" />
+                    <span>{elapsedSeconds}s elapsed</span>
+                  </div>
                 </div>
-                <div className="flex-shrink-0 self-start sm:self-auto font-mono text-xs font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5 animate-pulse">
-                  <Clock size={12} className="text-purple-400" />
-                  <span>{elapsedSeconds}s elapsed</span>
+                <div className="mt-2.5 text-[11px] text-purple-300/70 font-mono pl-7 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  {isVisionTask ? (
+                    <>
+                      <span>• Multimodal token stream & visual defect grounding</span>
+                      <span>• Local Ollama: http://localhost:11434 (0 bytes outbound)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>• Generating token stream & reasoning trace &lt;think&gt;...&lt;/think&gt;</span>
+                      <span>• Local Ollama: http://localhost:11434 (0 bytes outbound)</span>
+                    </>
+                  )}
                 </div>
-              </div>
-              <div className="mt-2.5 text-[11px] text-purple-300/70 font-mono pl-7 flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span>• Generating token stream & reasoning trace &lt;think&gt;...&lt;/think&gt;</span>
-                <span>• Local Ollama: http://localhost:11434 (0 bytes outbound)</span>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            );
+          })()}
 
           <AgentTrace
             steps={result?.steps}
@@ -430,7 +446,9 @@ export default function NewTask() {
                   </h4>
                   {result.live_mode && !result.fell_back_to_demo && (
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
-                      🟢 Live Local Inference (DeepSeek-R1)
+                      {result.task_type === 'vision' || result.model_used?.includes('Qwen')
+                        ? '🟢 Live Local Inference (Qwen2.5-VL)'
+                        : '🟢 Live Local Inference (DeepSeek-R1)'}
                     </span>
                   )}
                   {result.fell_back_to_demo && (

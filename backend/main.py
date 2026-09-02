@@ -29,7 +29,7 @@ from guardian import guardian_review
 from execution_guard import validate_tool_call, check_resource_budget, parse_action_call
 from sandbox import execute_in_sandbox
 from output_generator import generate_docx_report, parse_markdown_to_sections
-from real_llm import call_ollama, check_ollama_health
+from real_llm import call_ollama, call_ollama_vision, check_ollama_health
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -64,6 +64,7 @@ class AgentRunRequest(BaseModel):
     task: str
     output_format: str = "Word Doc"
     file_name: Optional[str] = None
+    file_data: Optional[str] = None  # optional base64 data for uploaded images
     scenario: Optional[str] = None  # pre-built demo scenario key
     user_role: str = "inspector"    # RBAC role: inspector, engineer, manager, admin
     live_mode: bool = False
@@ -286,16 +287,20 @@ async def run_agent(request: AgentRunRequest):
         print(f"[STAGE 2 PII] Live PII detected and masked: entities={pii_result['entities_found']}")
 
     # ─── Stage 3: Task Classification & Routing ──────────────────────────────
-    has_file = bool(request.file_name)
+    has_file = bool(request.file_name or request.file_data)
     task_type = classify_task(effective_task, has_file)
     if request.scenario == "code":
         task_type = "code"
-    elif request.scenario in ("vision", "analysis"):
+    elif request.scenario == "vision":
+        task_type = "vision"
+    elif request.scenario == "analysis":
         task_type = "analysis"
     elif request.scenario == "rag":
         task_type = "rag"
     elif request.scenario == "text":
         task_type = "text"
+    elif request.file_name and any(request.file_name.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"]):
+        task_type = "vision"
 
     append_log_entry(
         event_type="STAGE_3_TASK_CLASSIFICATION",
@@ -658,6 +663,27 @@ async def run_agent(request: AgentRunRequest):
                     fell_back_to_demo = True
                     live_fallback_reason = ollama_res.get("error", "Ollama inference error")
                     print(f"[LIVE MODE FALLBACK] {live_fallback_reason}")
+        elif task_type == "vision":
+            img_target = request.file_data or request.file_name or "sample_inspection_report.png"
+            if check_ollama_health():
+                print(f"[LIVE MODE] Dispatching vision task to local Ollama (Qwen2.5-VL)...")
+                vision_res = call_ollama_vision(
+                    image_path=img_target,
+                    prompt=request.task,
+                    model="qwen2.5vl:7b",
+                    timeout_s=60
+                )
+                if vision_res.get("success"):
+                    final_response = vision_res.get("final_answer") or final_response
+                    real_inference_time_ms = vision_res.get("inference_time_ms", 0)
+                    real_model_name = vision_res.get("model_used", "qwen2.5vl:7b")
+                    base_ms += real_inference_time_ms
+                    model_info = dict(model_info)
+                    model_info["model"] = "Qwen2.5-VL (Local GPU)"
+                else:
+                    fell_back_to_demo = True
+                    live_fallback_reason = vision_res.get("error", "Ollama vision inference error")
+                    print(f"[LIVE MODE FALLBACK - VISION] {live_fallback_reason}")
             else:
                 fell_back_to_demo = True
                 live_fallback_reason = "Ollama daemon unreachable at http://localhost:11434"
@@ -917,12 +943,13 @@ async def run_agent(request: AgentRunRequest):
 
     # Stage 13: Live Inference Audit entry if real GPU was used
     if request.live_mode and not fell_back_to_demo:
+        engine_label = "Ollama / Qwen2.5-VL (Local GPU)" if task_type == "vision" else "Ollama / DeepSeek-R1 (Local GPU)"
         append_log_entry(
             event_type="STAGE_13_LIVE_INFERENCE_AUDIT",
             details={
                 "stage": 13,
-                "inference_engine": "Ollama / DeepSeek-R1 (Local GPU)",
-                "model_used": real_model_name or "deepseek-r1:latest",
+                "inference_engine": engine_label,
+                "model_used": real_model_name or ("qwen2.5vl:7b" if task_type == "vision" else "deepseek-r1:latest"),
                 "inference_time_ms": real_inference_time_ms,
                 "reasoning_trace_present": bool(reasoning_trace),
                 "reasoning_trace_length": len(reasoning_trace or ""),

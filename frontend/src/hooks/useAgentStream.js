@@ -92,10 +92,25 @@ export function useAgentStream() {
     setError(null);
 
     try {
+      let fileData = null;
+      if (file && typeof window !== 'undefined' && file instanceof File) {
+        try {
+          fileData = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+          });
+        } catch {
+          fileData = null;
+        }
+      }
+
       const payload = {
         task,
         output_format: format,
         file_name: file?.name || null,
+        file_data: fileData,
         scenario: scenario || null,
         user_role: user_role || 'inspector',
         live_mode: Boolean(live_mode),
