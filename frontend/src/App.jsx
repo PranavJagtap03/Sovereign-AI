@@ -7,11 +7,13 @@ import KnowledgePage from './pages/KnowledgePage';
 import AuditPage from './pages/AuditPage';
 import SovereigntyPage from './pages/SovereigntyPage';
 import ModelRouterPage from './pages/ModelRouterPage';
+import { RiskCoverageProvider } from './context/RiskCoverageContext';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <div className="flex flex-col h-screen overflow-hidden" style={{ background: '#0A1628' }}>
+    <RiskCoverageProvider>
+      <BrowserRouter>
+        <div className="flex flex-col h-screen overflow-hidden" style={{ background: '#0A1628' }}>
         {/* Top Status Bar */}
         <StatusBar />
 
@@ -37,5 +39,6 @@ export default function App() {
         <div className="demo-badge">⚡ DEMO MODE</div>
       </div>
     </BrowserRouter>
+  </RiskCoverageProvider>
   );
 }

@@ -6,20 +6,29 @@ All LLM calls are simulated — works 100% offline without GPU.
 
 import asyncio
 import random
+import time
 from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 from mock_llm import (
     classify_task, get_model_info, get_demo_response,
     get_react_loop, get_pii_check_result, get_rag_results
 )
-from mock_rag import get_all_documents, get_rag_stats, simulate_indexing
-from mock_audit import generate_audit_logs, get_audit_summary
+from mock_rag import (
+    get_all_documents, get_rag_stats, simulate_indexing,
+    get_authorized_rag_results, USER_CLEARANCE
+)
+from mock_audit import generate_audit_logs, get_audit_summary, append_log_entry, verify_log_chain, tamper_demo_entry
+from input_guard import check_prompt_injection
+from guardian import guardian_review
+from execution_guard import validate_tool_call, check_resource_budget, parse_action_call
+from sandbox import execute_in_sandbox
+from output_generator import generate_docx_report, parse_markdown_to_sections
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -55,6 +64,7 @@ class AgentRunRequest(BaseModel):
     output_format: str = "Word Doc"
     file_name: Optional[str] = None
     scenario: Optional[str] = None  # pre-built demo scenario key
+    user_role: str = "inspector"    # RBAC role: inspector, engineer, manager, admin
 
 
 class AgentRunResponse(BaseModel):
@@ -62,9 +72,27 @@ class AgentRunResponse(BaseModel):
     model_used: str
     task_type: str
     time_taken_ms: int
-    outbound_bytes: int
-    output_file: Optional[str]
+    outbound_bytes: int = 0
+    output_file: Optional[str] = None
     final_response: str
+    status: str = "completed"
+    pending_approval: bool = False
+    guardian_review: Optional[dict] = None
+    execution_halted: bool = False
+    halt_reason: Optional[str] = None
+    sandbox_result: Optional[dict] = None
+    user_role: str = "inspector"
+    stages_passed: int = 13
+    stages_total: int = 13
+    stages_pipeline: list = []
+    stage_results: dict = {}
+
+
+class DocxGenerateRequest(BaseModel):
+    title: Optional[str] = "Sovereign AI Deliverable Report"
+    content: Optional[str] = None
+    sections: Optional[list] = None
+    filename: Optional[str] = "deliverable_report.docx"
 
 
 # ─── Helper: Build output filename ───────────────────────────────────────────
@@ -104,39 +132,387 @@ async def root():
     }
 
 
+STAGE_NAMES = {
+    1: "Prompt Injection Scanner",
+    2: "Live PII Sanitizer",
+    3: "Task Classification & Routing",
+    4: "Authorization & RBAC Filter",
+    5: "Local Model Selection",
+    6: "Company Brain Retrieval (RAG)",
+    7: "Primary Agent Generation",
+    8: "Guardian Agent Review",
+    9: "Tool Call Validator",
+    10: "Resource Budget Limiter",
+    11: "Secure Sandbox Execution (gVisor)",
+    12: "Air-Gapped Deliverable Vault",
+    13: "Tamper-Evident Hash Chain Audit"
+}
+
+
+# ─── Main Pipeline Endpoint (All 13 Stages) ──────────────────────────────────
+
 @app.post("/api/agent/run")
 async def run_agent(request: AgentRunRequest):
     """
-    Main agentic pipeline endpoint.
-    Returns the full ReAct loop trace with simulated processing delays.
+    Main agentic pipeline endpoint coordinating all 13 sovereign AI stages:
+    1. Prompt Injection Scanner (Input Guard)
+    2. Live PII Sanitizer
+    3. Task Classification & Routing
+    4. Authorization & RBAC Filter
+    5. Local Model Selection
+    6. Company Brain Retrieval (ChromaDB)
+    7. Primary Agent Generation (ReAct Loop)
+    8. Guardian Agent Independent Review
+    9. Tool Call Validator
+    10. Resource Budget Limiter
+    11. Secure gVisor Sandbox Execution
+    12. Air-Gapped Deliverable Vault
+    13. Tamper-Evident Hash-Chained Audit Log
     """
     global _task_counter
     _task_counter += 1
 
+    # ─── Stage 1: Prompt Injection Scanner ───────────────────────────────────
+    injection_check = check_prompt_injection(request.task)
+    append_log_entry(
+        event_type="STAGE_1_INPUT_GUARD",
+        details={
+            "stage": 1,
+            "user_role": request.user_role,
+            "injection_detected": injection_check["injection_detected"],
+            "risk_score": injection_check["risk_score"],
+            "matched_patterns": injection_check["matched_patterns"],
+            "scan_duration_ms": injection_check["scan_duration_ms"],
+            "decision": "BLOCKED" if injection_check["injection_detected"] else "PASSED"
+        }
+    )
+
+    if injection_check["injection_detected"]:
+        halt_reason = (
+            f"Stage 1 Security Block: Prompt Injection Detected "
+            f"(risk: {injection_check['risk_score']} | patterns: {', '.join(injection_check['matched_patterns'])})"
+        )
+        print(f"[SECURITY BLOCK] {halt_reason}")
+
+        stages_pipeline = [
+            {
+                "stage": 1,
+                "name": STAGE_NAMES[1],
+                "passed": False,
+                "status": "blocked",
+                "summary": halt_reason
+            },
+            *[
+                {
+                    "stage": s,
+                    "name": STAGE_NAMES[s],
+                    "passed": False,
+                    "status": "skipped",
+                    "summary": "Pipeline halted due to Stage 1 injection block"
+                }
+                for s in range(2, 14)
+            ]
+        ]
+
+        steps = [
+            {
+                "step": 1,
+                "name": "Security Check (Halted)",
+                "icon": "🛑",
+                "status": "failed",
+                "details": halt_reason,
+                "sub_items": [
+                    f"🛑 Prompt injection vector detected: {', '.join(injection_check['matched_patterns'])}",
+                    f"⚠️ Risk score: {injection_check['risk_score']} (Threshold 0.50)",
+                    f"⏱ Scan time: {injection_check['scan_duration_ms']}ms",
+                    "🔒 Downstream model inference halted immediately"
+                ]
+            },
+            {"step": 2, "name": "Task Classification & Routing", "icon": "⏭️", "status": "skipped", "details": "Skipped due to Stage 1 block", "sub_items": []},
+            {"step": 3, "name": "RAG Retrieval", "icon": "⏭️", "status": "skipped", "details": "Skipped due to Stage 1 block", "sub_items": []},
+            {"step": 4, "name": "Agentic Processing", "icon": "⏭️", "status": "skipped", "details": "Skipped due to Stage 1 block", "sub_items": []},
+            {"step": 5, "name": "Validation & Safety Check", "icon": "⏭️", "status": "skipped", "details": "Skipped due to Stage 1 block", "sub_items": []},
+            {"step": 6, "name": "Deliverable Ready", "icon": "❌", "status": "skipped", "details": "Aborted — zero outbound output generated", "output_file": None, "sub_items": ["❌ Zero data egress"]}
+        ]
+
+        return {
+            "steps": steps,
+            "model_used": "None (Interception)",
+            "task_type": "security_block",
+            "time_taken_ms": injection_check["scan_duration_ms"],
+            "outbound_bytes": 0,
+            "output_file": None,
+            "final_response": f"🛑 Task blocked by Stage 1 Prompt Injection Scanner:\n{halt_reason}\n\nPipeline execution stopped — zero cloud egress and zero local execution.",
+            "status": "blocked",
+            "execution_halted": True,
+            "halt_reason": halt_reason,
+            "pending_approval": False,
+            "guardian_review": None,
+            "sandbox_result": None,
+            "user_role": request.user_role,
+            "stages_passed": 0,
+            "stages_total": 13,
+            "stages_pipeline": stages_pipeline,
+            "stage_results": {
+                "stage_1": {"stage": 1, "name": STAGE_NAMES[1], "result": injection_check}
+            }
+        }
+
+    # ─── Stage 2: Live PII Sanitizer ─────────────────────────────────────────
+    # Live user query sanitization only. Document-level PII masking happens separately at ingestion time (Stage 12, not here).
+    pii_result = get_pii_check_result(request.task)
+    append_log_entry(
+        event_type="STAGE_2_PII_SANITIZER",
+        details={
+            "stage": 2,
+            "user_role": request.user_role,
+            "pii_detected": pii_result.get("pii_detected", False),
+            "entities_found": pii_result.get("entities_found", []),
+            "entities_scanned": pii_result.get("entities_scanned", 0),
+            "scan_duration_ms": pii_result.get("scan_duration_ms", 0),
+            "decision": "MASKED" if pii_result.get("pii_detected") else "CLEAN"
+        }
+    )
+    # Short-circuit with masked version of query if PII found (do not send raw PII forward)
+    effective_task = pii_result["masked_preview"] if pii_result.get("pii_detected") else request.task
+    if pii_result.get("pii_detected"):
+        print(f"[STAGE 2 PII] Live PII detected and masked: entities={pii_result['entities_found']}")
+
+    # ─── Stage 3: Task Classification & Routing ──────────────────────────────
     has_file = bool(request.file_name)
-    task_type = classify_task(request.task, has_file)
-    
-    # Override task type for specific scenarios
+    task_type = classify_task(effective_task, has_file)
     if request.scenario == "code":
         task_type = "code"
-    elif request.scenario == "vision" or request.scenario == "analysis":
+    elif request.scenario in ("vision", "analysis"):
         task_type = "analysis"
     elif request.scenario == "rag":
         task_type = "rag"
     elif request.scenario == "text":
         task_type = "text"
 
+    append_log_entry(
+        event_type="STAGE_3_TASK_CLASSIFICATION",
+        details={
+            "stage": 3,
+            "user_role": request.user_role,
+            "task_type": task_type,
+            "input_length": len(effective_task),
+            "decision": "ROUTED"
+        }
+    )
+
+    # ─── Stage 4: Authorization/RBAC Filter ──────────────────────────────────
+    rag_result = get_authorized_rag_results(task_type, user_role=request.user_role)
+    user_clearance = rag_result.get("user_clearance", USER_CLEARANCE.get(request.user_role, "Internal"))
+    append_log_entry(
+        event_type="STAGE_4_RBAC_AUTHORIZATION",
+        details={
+            "stage": 4,
+            "user_role": request.user_role,
+            "clearance": user_clearance,
+            "task_type": task_type,
+            "sources_allowed": rag_result.get("sources", []),
+            "sources_blocked": rag_result.get("filtered_documents", []),
+            "decision": "AUTHORIZED"
+        }
+    )
+
+    # ─── Stage 5: Local Model Selection ──────────────────────────────────────
     model_info = get_model_info(task_type)
-    pii_result = get_pii_check_result()
-    rag_result = get_rag_results(task_type)
-    react_loop = get_react_loop(task_type)
-    final_response = get_demo_response(task_type)
-    output_file = _get_output_filename(request.output_format, task_type)
-    
-    # Simulate timing
-    base_ms = random.randint(2800, 5400)
-    
-    # ─── Build step trace ─────────────────────────────────────────────────────
+    append_log_entry(
+        event_type="STAGE_5_MODEL_ROUTING",
+        details={
+            "stage": 5,
+            "model_selected": model_info["model"],
+            "model_size": model_info["size"],
+            "vram_allocated": model_info["vram"],
+            "decision": "ALLOCATED"
+        }
+    )
+
+    # ─── Stage 6: Company Brain Retrieval (ChromaDB) ─────────────────────────
+    append_log_entry(
+        event_type="STAGE_6_COMPANY_BRAIN",
+        details={
+            "stage": 6,
+            "collection": rag_result.get("collection", "internal_docs"),
+            "chunks_retrieved": rag_result.get("chunks", 0),
+            "top_similarity": rag_result.get("top_similarity", 0.0),
+            "query_time_ms": rag_result.get("query_time_ms", 0),
+            "decision": "RETRIEVED" if rag_result.get("retrieved") else "SKIPPED_NOT_APPLICABLE"
+        }
+    )
+
+    # ─── Stage 7: Primary Agent Generation (ReAct Loop + Stages 9, 10, 11) ───
+    raw_react_loop = get_react_loop(task_type)
+    code_preview = get_demo_response("code") if task_type == "code" else request.task
+    sandbox_result = None
+
+    # Attack Demo Trigger: Resource Exhaustion (generate >15 steps)
+    if any(k in request.task.lower() for k in ["infinite loop", "resource exhaustion", "50 steps"]):
+        raw_react_loop = [
+            {"thought": f"Recursive branch expansion #{i}: exploring sub-execution paths..."}
+            for i in range(1, 20)
+        ]
+    # Attack Demo Trigger: Malformed Tool Call (path traversal attack)
+    elif any(k in request.task.lower() for k in ["run_calculation(", "malformed tool", "../../etc"]):
+        raw_react_loop = [
+            {"thought": "Attempting system metric analysis via internal calculation tool."},
+            {"action": "run_calculation(expression='../../etc/shadow', traversal=True)"}
+        ]
+
+    executed_react_loop = []
+    execution_halted = False
+    halt_reason = None
+    tool_blocked = False
+    budget_exceeded = False
+    step_count = 0
+    start_loop_time = time.perf_counter()
+
+    for item in raw_react_loop:
+        step_count += 1
+        elapsed_loop_ms = max(1, int((time.perf_counter() - start_loop_time) * 1000)) + (step_count * random.randint(15, 35))
+
+        # Stage 10: Check resource budget on each step
+        budget_check = check_resource_budget(step_count, elapsed_loop_ms)
+        if not budget_check["within_budget"]:
+            budget_exceeded = True
+            execution_halted = True
+            halt_reason = budget_check["reason"]
+            append_log_entry(
+                event_type="STAGE_10_RESOURCE_BUDGET",
+                details={
+                    "stage": 10,
+                    "step_count": step_count,
+                    "elapsed_loop_ms": elapsed_loop_ms,
+                    "decision": "HALTED",
+                    "reason": halt_reason
+                }
+            )
+            print(f"[STAGE 10 RESOURCE BUDGET] {halt_reason}")
+            break
+
+        # Stage 9: Validate tool calls before any action step executes
+        if "action" in item:
+            action_str = item["action"]
+            parsed_tools = parse_action_call(action_str)
+            action_blocked = False
+            for tool_name, tool_args in parsed_tools:
+                tool_val = validate_tool_call(tool_name, tool_args)
+                if not tool_val["valid"]:
+                    tool_blocked = True
+                    execution_halted = True
+                    halt_reason = f"Execution Guard blocked tool '{tool_name}': {tool_val['reason']}"
+                    append_log_entry(
+                        event_type="STAGE_9_TOOL_VALIDATION",
+                        details={
+                            "stage": 9,
+                            "tool_name": tool_name,
+                            "decision": "BLOCKED",
+                            "reason": tool_val["reason"]
+                        }
+                    )
+                    print(f"[STAGE 9 TOOL VALIDATOR] {halt_reason}")
+                    action_blocked = True
+                    break
+            if action_blocked:
+                break
+
+            # Stage 11: Execute code inside isolated gVisor sandbox container
+            if task_type == "code" and any(k in action_str for k in ["execute_in_sandbox", "validate_code_syntax"]):
+                sandbox_res = execute_in_sandbox(code=code_preview, language="python")
+                sandbox_result = sandbox_res
+                append_log_entry(
+                    event_type="STAGE_11_SANDBOX_EXECUTION",
+                    details={
+                        "stage": 11,
+                        "sandbox": sandbox_res["sandbox"],
+                        "network_access": sandbox_res["network_access"],
+                        "filesystem": sandbox_res["filesystem"],
+                        "exit_code": sandbox_res["exit_code"],
+                        "execution_time_ms": sandbox_res["execution_time_ms"],
+                        "decision": "CONTAINED_SUCCESS"
+                    }
+                )
+                print(f"[STAGE 11 SANDBOX] Executed in gVisor sandbox (runsc): exit_code={sandbox_res['exit_code']} time={sandbox_res['execution_time_ms']}ms")
+                item = dict(item)
+                item["observation"] = (
+                    f"✓ gVisor Sandbox run (runsc): exit {sandbox_res['exit_code']} | "
+                    f"Net: {sandbox_res['network_access']} | FS: {sandbox_res['filesystem']} | "
+                    f"Time: {sandbox_res['execution_time_ms']}ms"
+                )
+
+        executed_react_loop.append(item)
+
+    # Stage 7: Primary Agent ReAct Loop completion logging
+    append_log_entry(
+        event_type="STAGE_7_PRIMARY_AGENT",
+        details={
+            "stage": 7,
+            "task_type": task_type,
+            "steps_executed": len(executed_react_loop),
+            "execution_halted": execution_halted,
+            "decision": "HALTED" if execution_halted else "COMPLETED"
+        }
+    )
+
+    # Stage 11: Sandbox execution logging if not already logged during code action
+    if not sandbox_result:
+        append_log_entry(
+            event_type="STAGE_11_SANDBOX_EXECUTION",
+            details={
+                "stage": 11,
+                "sandbox": "gVisor (runsc)",
+                "decision": "SKIPPED_NOT_APPLICABLE" if task_type != "code" else "CONTAINED_STANDBY"
+            }
+        )
+
+    if not execution_halted:
+        append_log_entry(
+            event_type="STAGE_9_10_EXECUTION_GUARD",
+            details={
+                "stage": 9,
+                "steps_executed": len(executed_react_loop),
+                "tool_validation": "PASSED",
+                "resource_budget": "WITHIN_BUDGET",
+                "decision": "PASSED"
+            }
+        )
+
+    # ─── Format Step Traces ───────────────────────────────────────────────────
+    pii_detected_label = "None" if not pii_result.get("pii_detected") else f"{', '.join(pii_result['entities_found'])} (Masked)"
+    pii_sub_label = (
+        f"🛡 PII scan: {pii_result['entities_scanned']} tokens checked — CLEAN"
+        if not pii_result.get("pii_detected")
+        else f"🛡 PII scan: Masked {len(pii_result['entities_found'])} sensitive entities ({', '.join(pii_result['entities_found'])})"
+    )
+
+    security_step = {
+        "step": 1,
+        "name": "Security Check",
+        "icon": "🔒",
+        "status": "passed",
+        "details": f"PII detected: {pii_detected_label} | Role: {request.user_role} ({user_clearance}) | Input sanitized ✓",
+        "sub_items": [
+            pii_sub_label,
+            f"🔑 RBAC: Role '{request.user_role}' authorized for {task_type} tasks (Clearance: {user_clearance})",
+            f"🧹 Input sanitization: Complete ({pii_result['scan_duration_ms']}ms)"
+        ]
+    }
+
+    routing_step = {
+        "step": 2,
+        "name": "Task Classification & Routing",
+        "icon": "🧠",
+        "status": "passed",
+        "details": f"Task type: {task_type.upper()} | Model selected: {model_info['model']} | {model_info['reason']}",
+        "sub_items": [
+            f"🏷 Classified as: {task_type.upper()}",
+            f"🤖 Routed to: {model_info['model']} ({model_info['size']})",
+            f"💡 Reason: {model_info['reason']}",
+            f"💾 VRAM allocation: {model_info['vram']}"
+        ]
+    }
 
     rag_step = {
         "step": 3,
@@ -146,79 +522,357 @@ async def run_agent(request: AgentRunRequest):
         "details": (
             f"RAG not applicable for {task_type} tasks"
             if not rag_result.get("retrieved")
-            else f"{rag_result['chunks']} chunks retrieved from: {', '.join(rag_result['sources'])} | Similarity: {rag_result['top_similarity']} | Query: {rag_result['query_time_ms']}ms"
+            else f"{rag_result['chunks']} chunks retrieved from: {', '.join(rag_result['sources'])} | Clearance: {user_clearance}"
         ),
         "sub_items": [] if not rag_result.get("retrieved") else [
             f"🔍 Querying ChromaDB ({rag_result['collection']} collection)...",
             f"✓ Top match similarity: {rag_result['top_similarity']}",
-            f"📄 Sources: {', '.join(rag_result['sources'])}"
+            f"📄 Allowed Sources: {', '.join(rag_result['sources'])}",
+            *( [f"🚫 RBAC Filtered: {', '.join(rag_result['filtered_documents'])} (requires higher clearance)"] if rag_result.get("filtered_documents") else [] )
         ]
     }
 
+    if execution_halted:
+        # Return partial result when tool validation or resource budget fails
+        base_ms = random.randint(800, 1400) + elapsed_loop_ms
+        final_response = f"⚠️ Task execution halted by Execution Guard:\n{halt_reason}\n\nCompleted {len(executed_react_loop)} of {len(raw_react_loop)} planned steps before interception."
+        
+        react_step = {
+            "step": 4,
+            "name": "Agentic Processing (Halted)",
+            "icon": "⚠️",
+            "status": "failed",
+            "details": f"Execution halted at step {step_count} | {halt_reason}",
+            "react_loop": executed_react_loop,
+            "sub_items": [
+                f"🛑 Execution Guard Halt: {halt_reason}",
+                f"📊 Steps completed prior to halt: {len(executed_react_loop)}"
+            ]
+        }
+
+        validation_step = {
+            "step": 5,
+            "name": "Validation & Safety Check",
+            "icon": "⏭️",
+            "status": "skipped",
+            "details": "Validation skipped — pipeline halted prior to completion",
+            "sub_items": ["⚠️ Skipped due to Execution Guard halt"]
+        }
+
+        deliverable_step = {
+            "step": 6,
+            "name": "Deliverable Ready",
+            "icon": "❌",
+            "status": "skipped",
+            "details": "Deliverable generation aborted due to Execution Guard halt",
+            "output_file": None,
+            "sub_items": ["❌ No deliverable file generated"]
+        }
+
+        steps = [security_step, routing_step, rag_step, react_step, validation_step, deliverable_step]
+
+        chain_verify = verify_log_chain()
+
+        stages_pipeline = [
+            {"stage": 1, "name": STAGE_NAMES[1], "passed": True, "status": "passed", "summary": "Prompt injection scan clean"},
+            {"stage": 2, "name": STAGE_NAMES[2], "passed": True, "status": "passed", "summary": "PII scan complete"},
+            {"stage": 3, "name": STAGE_NAMES[3], "passed": True, "status": "passed", "summary": f"Task classified as {task_type.upper()}"},
+            {"stage": 4, "name": STAGE_NAMES[4], "passed": True, "status": "passed", "summary": f"Role '{request.user_role}' ({user_clearance}) authorized"},
+            {"stage": 5, "name": STAGE_NAMES[5], "passed": True, "status": "passed", "summary": f"Allocated {model_info['model']}"},
+            {"stage": 6, "name": STAGE_NAMES[6], "passed": True, "status": "passed" if rag_result.get("retrieved") else "skipped", "summary": "RAG retrieval complete" if rag_result.get("retrieved") else "Not applicable"},
+            {"stage": 7, "name": STAGE_NAMES[7], "passed": False, "status": "halted", "summary": f"ReAct execution halted: {halt_reason}"},
+            {"stage": 8, "name": STAGE_NAMES[8], "passed": False, "status": "skipped", "summary": "Skipped due to loop halt"},
+            {"stage": 9, "name": STAGE_NAMES[9], "passed": not tool_blocked, "status": "blocked" if tool_blocked else "passed", "summary": "Tool check blocked" if tool_blocked else "Validated"},
+            {"stage": 10, "name": STAGE_NAMES[10], "passed": not budget_exceeded, "status": "exceeded" if budget_exceeded else "passed", "summary": "Resource budget exceeded" if budget_exceeded else "Within limits"},
+            {"stage": 11, "name": STAGE_NAMES[11], "passed": False, "status": "skipped", "summary": "Skipped due to loop halt"},
+            {"stage": 12, "name": STAGE_NAMES[12], "passed": False, "status": "aborted", "summary": "Deliverable aborted"},
+            {"stage": 13, "name": STAGE_NAMES[13], "passed": chain_verify.get("chain_valid", True), "status": "passed", "summary": "Audit log hash chain verified"}
+        ]
+
+        stages_passed = sum(1 for s in stages_pipeline if s["passed"])
+
+        return {
+            "steps": steps,
+            "model_used": model_info["model"],
+            "task_type": task_type,
+            "time_taken_ms": base_ms,
+            "outbound_bytes": 0,
+            "output_file": None,
+            "final_response": final_response,
+            "status": "halted",
+            "execution_halted": True,
+            "halt_reason": halt_reason,
+            "pending_approval": False,
+            "guardian_review": None,
+            "sandbox_result": None,
+            "user_role": request.user_role,
+            "stages_passed": stages_passed,
+            "stages_total": 13,
+            "stages_pipeline": stages_pipeline,
+            "stage_results": {
+                "stage_1": {"stage": 1, "name": STAGE_NAMES[1], "result": injection_check},
+                "stage_2": {"stage": 2, "name": STAGE_NAMES[2], "result": pii_result},
+                "stage_3": {"stage": 3, "name": STAGE_NAMES[3], "result": {"task_type": task_type}},
+                "stage_4": {"stage": 4, "name": STAGE_NAMES[4], "result": rag_result},
+                "stage_5": {"stage": 5, "name": STAGE_NAMES[5], "result": model_info},
+                "stage_6": {"stage": 6, "name": STAGE_NAMES[6], "result": rag_result},
+                "stage_7": {"stage": 7, "name": STAGE_NAMES[7], "result": {"halted": True, "steps": len(executed_react_loop)}},
+                "stage_9": {"stage": 9, "name": STAGE_NAMES[9], "result": {"valid": not tool_blocked}},
+                "stage_10": {"stage": 10, "name": STAGE_NAMES[10], "result": {"within_budget": not budget_exceeded}},
+                "stage_13": {"stage": 13, "name": STAGE_NAMES[13], "result": chain_verify}
+            }
+        }
+
+    # ─── Stage 8: Guardian Agent (Independent Review) ─────────────────────────
+    final_response = get_demo_response(task_type)
+    if any(k in request.task.lower() for k in ["safe to operate", "overconfident", "without inspection"]):
+        final_response = (
+            "Equipment Telemetry Assessment:\n\n"
+            "Based on current pressure readings, steam boiler pump unit B-12 at 450 PSI is safe to operate "
+            "and approved for immediate production without manual inspection."
+        )
+    guardian_result = guardian_review(final_response, task_type)
+    is_pending_approval = guardian_result.get("requires_human_approval", False)
+    append_log_entry(
+        event_type="STAGE_8_GUARDIAN_REVIEW",
+        details={
+            "stage": 8,
+            "user_role": request.user_role,
+            "reviewed_by": guardian_result.get("reviewed_by"),
+            "verdict": guardian_result.get("verdict"),
+            "requires_human_approval": is_pending_approval,
+            "reason": guardian_result.get("reason"),
+            "decision": "ESCALATED" if is_pending_approval else "APPROVED"
+        }
+    )
+    if is_pending_approval:
+        print(f"[STAGE 8 GUARDIAN] Human approval required: reason='{guardian_result['reason']}' reviewed_by='{guardian_result['reviewed_by']}'")
+
+    # ─── Stage 12: Air-Gapped Deliverable Vault ──────────────────────────────
+    output_file = _get_output_filename(request.output_format, task_type)
+    append_log_entry(
+        event_type="STAGE_12_DELIVERABLE_VAULT",
+        details={
+            "stage": 12,
+            "user_role": request.user_role,
+            "output_file": output_file,
+            "encryption": "AES-256-GCM",
+            "quarantined": is_pending_approval,
+            "decision": "QUARANTINED" if is_pending_approval else "VAULT_READY"
+        }
+    )
+
+    # ─── Stage 13: Audit Hash Chain Verification ──────────────────────────────
+    chain_verify = verify_log_chain()
+    append_log_entry(
+        event_type="STAGE_13_HASH_CHAIN_AUDIT",
+        details={
+            "stage": 13,
+            "chain_valid": chain_verify.get("chain_valid", True),
+            "total_entries": chain_verify.get("total_entries", 0),
+            "decision": "VERIFIED" if chain_verify.get("chain_valid", True) else "COMPROMISED"
+        }
+    )
+
+    # Simulate timing
+    base_ms = random.randint(2800, 5400) + guardian_result.get("review_duration_ms", 50)
+
+    # ─── Assemble Steps ───────────────────────────────────────────────────────
     steps = [
-        {
-            "step": 1,
-            "name": "Security Check",
-            "icon": "🔒",
-            "status": "passed",
-            "details": f"PII detected: None | {pii_result['entities_scanned']} entities scanned | RBAC check: Authorized ✓ | Input sanitized ✓",
-            "sub_items": [
-                f"🛡 PII scan: {pii_result['entities_scanned']} tokens checked — CLEAN",
-                f"🔑 RBAC: User role authorized for {task_type} tasks",
-                f"🧹 Input sanitization: Complete ({pii_result['scan_duration_ms']}ms)"
-            ]
-        },
-        {
-            "step": 2,
-            "name": "Task Classification & Routing",
-            "icon": "🧠",
-            "status": "passed",
-            "details": f"Task type: {task_type.upper()} | Model selected: {model_info['model']} | {model_info['reason']}",
-            "sub_items": [
-                f"🏷 Classified as: {task_type.upper()}",
-                f"🤖 Routed to: {model_info['model']} ({model_info['size']})",
-                f"💡 Reason: {model_info['reason']}",
-                f"💾 VRAM allocation: {model_info['vram']}"
-            ]
-        },
+        security_step,
+        routing_step,
         rag_step,
         {
             "step": 4,
             "name": "Agentic Processing (ReAct Loop)",
             "icon": "⚙️",
             "status": "passed",
-            "details": f"ReAct loop completed | {len(react_loop)} iterations | Model: {model_info['model']}",
-            "react_loop": react_loop,
-            "sub_items": [f"{'💭 Thought' if 'thought' in item else '⚡ Action'}: {item.get('thought') or item.get('action')}" for item in react_loop[:3]]
+            "details": f"ReAct loop completed | {len(executed_react_loop)} iterations | Tool calls validated ✓ | Budget: PASS",
+            "react_loop": executed_react_loop,
+            "sub_items": [f"{'💭 Thought' if 'thought' in item else '⚡ Action'}: {item.get('thought') or item.get('action')}" for item in executed_react_loop[:3]]
         },
         {
             "step": 5,
             "name": "Validation & Safety Check",
             "icon": "✅",
             "status": "passed",
-            "details": "Output validated | No sensitive data in output ✓ | Format verified ✓ | Content policy: PASS",
+            "details": (
+                f"Output validated | Guardian: {guardian_result['verdict']} | Format verified ✓ | Content policy: PASS"
+            ),
             "sub_items": [
                 "🔍 Output PII scan: CLEAN",
                 "📋 Format validation: PASS",
-                "🛡 Content safety: COMPLIANT",
+                (
+                    f"📦 Sandbox: gVisor (runsc) — exit {sandbox_result['exit_code']} | net=none, fs=ro ({sandbox_result['execution_time_ms']}ms)"
+                    if sandbox_result
+                    else "🛡 Content safety: COMPLIANT"
+                ),
+                f"🛡 Guardian ({guardian_result['reviewed_by']}): {guardian_result['verdict']}" + (
+                    f" — {guardian_result['reason']} (Escalated)" if is_pending_approval else " (Clean)"
+                ),
                 f"📊 Output size: {random.randint(18, 210)} KB"
             ]
         },
         {
             "step": 6,
-            "name": "Deliverable Ready",
-            "icon": "📄",
-            "status": "passed",
-            "details": f"Output file: {output_file} | Encrypted with AES-256 | Stored in local vault",
+            "name": "Deliverable Ready" if not is_pending_approval else "Awaiting Human Review",
+            "icon": "📄" if not is_pending_approval else "⏳",
+            "status": "pending_approval" if is_pending_approval else "passed",
+            "details": (
+                f"Output file: {output_file} | Encrypted with AES-256 | Stored in local vault"
+                if not is_pending_approval
+                else f"Output file: {output_file} | Quarantined pending human approval | {guardian_result['confidence_note']}"
+            ),
             "output_file": output_file,
             "sub_items": [
                 f"📁 File: {output_file}",
                 "🔐 Encrypted: AES-256-GCM",
-                "💾 Stored: Local secure vault",
-                "📝 Audit entry: logged"
+                "💾 Stored: Local secure vault (Quarantine Hold)" if is_pending_approval else "💾 Stored: Local secure vault",
+                f"⚠️ Guardian Flag: {guardian_result['confidence_note']}" if is_pending_approval else "📝 Audit entry: logged"
             ]
         }
     ]
+
+    # ─── Compute 13-Stage Visual Pipeline ─────────────────────────────────────
+    stages_pipeline = [
+        {
+            "stage": 1,
+            "name": STAGE_NAMES[1],
+            "passed": True,
+            "status": "passed",
+            "summary": f"Prompt injection scanner clean (risk: {injection_check['risk_score']})"
+        },
+        {
+            "stage": 2,
+            "name": STAGE_NAMES[2],
+            "passed": True,
+            "status": "passed",
+            "summary": (
+                "Query clean — 0 PII entities found"
+                if not pii_result.get("pii_detected")
+                else f"Sanitized {len(pii_result['entities_found'])} PII tokens ({', '.join(pii_result['entities_found'])})"
+            )
+        },
+        {
+            "stage": 3,
+            "name": STAGE_NAMES[3],
+            "passed": True,
+            "status": "passed",
+            "summary": f"Task classified as {task_type.upper()}"
+        },
+        {
+            "stage": 4,
+            "name": STAGE_NAMES[4],
+            "passed": True,
+            "status": "passed",
+            "summary": (
+                f"Role '{request.user_role}' ({user_clearance}) authorized"
+                + (f" | Filtered: {', '.join(rag_result['filtered_documents'])}" if rag_result.get("filtered_documents") else " | Full access")
+            )
+        },
+        {
+            "stage": 5,
+            "name": STAGE_NAMES[5],
+            "passed": True,
+            "status": "passed",
+            "summary": f"Allocated local model: {model_info['model']} ({model_info['size']})"
+        },
+        {
+            "stage": 6,
+            "name": STAGE_NAMES[6],
+            "passed": True,
+            "status": "passed" if rag_result.get("retrieved") else "skipped",
+            "summary": (
+                f"ChromaDB retrieval: {rag_result['chunks']} chunks (top similarity {rag_result['top_similarity']})"
+                if rag_result.get("retrieved")
+                else "Retrieval not required for this task"
+            )
+        },
+        {
+            "stage": 7,
+            "name": STAGE_NAMES[7],
+            "passed": True,
+            "status": "passed",
+            "summary": f"Completed primary ReAct loop ({len(executed_react_loop)} steps)"
+        },
+        {
+            "stage": 8,
+            "name": STAGE_NAMES[8],
+            "passed": not is_pending_approval,
+            "status": "escalated" if is_pending_approval else "passed",
+            "summary": (
+                f"Guardian review passed ({guardian_result['reviewed_by']}): {guardian_result['verdict']}"
+                if not is_pending_approval
+                else f"Awaiting human approval ({guardian_result['reviewed_by']}): {guardian_result['reason']}"
+            )
+        },
+        {
+            "stage": 9,
+            "name": STAGE_NAMES[9],
+            "passed": True,
+            "status": "passed",
+            "summary": "All tool invocations validated against authorized schema"
+        },
+        {
+            "stage": 10,
+            "name": STAGE_NAMES[10],
+            "passed": True,
+            "status": "passed",
+            "summary": f"Execution budget PASS ({step_count}/15 steps, {elapsed_loop_ms}ms)"
+        },
+        {
+            "stage": 11,
+            "name": STAGE_NAMES[11],
+            "passed": True,
+            "status": "passed" if sandbox_result else "skipped",
+            "summary": (
+                f"gVisor runtime (runsc): exit {sandbox_result['exit_code']} (net=none, fs=ro, {sandbox_result['execution_time_ms']}ms)"
+                if sandbox_result
+                else "Sandbox execution not required for non-code task"
+            )
+        },
+        {
+            "stage": 12,
+            "name": STAGE_NAMES[12],
+            "passed": not is_pending_approval,
+            "status": "quarantined" if is_pending_approval else "passed",
+            "summary": (
+                f"Deliverable encrypted in local vault ({output_file})"
+                if not is_pending_approval
+                else f"Deliverable quarantined pending human sign-off ({output_file})"
+            )
+        },
+        {
+            "stage": 13,
+            "name": STAGE_NAMES[13],
+            "passed": chain_verify.get("chain_valid", True),
+            "status": "passed" if chain_verify.get("chain_valid", True) else "compromised",
+            "summary": f"HMAC-SHA256 audit chain verified ({chain_verify.get('total_entries', 0)} entries linked)"
+        }
+    ]
+
+    stages_passed = sum(1 for s in stages_pipeline if s["passed"])
+
+    stage_results = {
+        "stage_1": {"stage": 1, "name": STAGE_NAMES[1], "result": injection_check},
+        "stage_2": {"stage": 2, "name": STAGE_NAMES[2], "result": pii_result},
+        "stage_3": {"stage": 3, "name": STAGE_NAMES[3], "result": {"task_type": task_type}},
+        "stage_4": {"stage": 4, "name": STAGE_NAMES[4], "result": {
+            "user_role": request.user_role,
+            "user_clearance": user_clearance,
+            "sources": rag_result.get("sources", []),
+            "filtered_documents": rag_result.get("filtered_documents", [])
+        }},
+        "stage_5": {"stage": 5, "name": STAGE_NAMES[5], "result": model_info},
+        "stage_6": {"stage": 6, "name": STAGE_NAMES[6], "result": rag_result},
+        "stage_7": {"stage": 7, "name": STAGE_NAMES[7], "result": {"model": model_info["model"], "steps": len(executed_react_loop)}},
+        "stage_8": {"stage": 8, "name": STAGE_NAMES[8], "result": guardian_result},
+        "stage_9": {"stage": 9, "name": STAGE_NAMES[9], "result": {"valid": True}},
+        "stage_10": {"stage": 10, "name": STAGE_NAMES[10], "result": {"steps": step_count, "limit": 15, "within_budget": True}},
+        "stage_11": {"stage": 11, "name": STAGE_NAMES[11], "result": sandbox_result},
+        "stage_12": {"stage": 12, "name": STAGE_NAMES[12], "result": {"output_file": output_file, "quarantined": is_pending_approval}},
+        "stage_13": {"stage": 13, "name": STAGE_NAMES[13], "result": chain_verify}
+    }
 
     return {
         "steps": steps,
@@ -227,7 +881,18 @@ async def run_agent(request: AgentRunRequest):
         "time_taken_ms": base_ms,
         "outbound_bytes": 0,
         "output_file": output_file,
-        "final_response": final_response
+        "final_response": final_response,
+        "status": "pending_approval" if is_pending_approval else "completed",
+        "pending_approval": is_pending_approval,
+        "guardian_review": guardian_result,
+        "execution_halted": False,
+        "halt_reason": None,
+        "sandbox_result": sandbox_result,
+        "user_role": request.user_role,
+        "stages_passed": stages_passed,
+        "stages_total": 13,
+        "stages_pipeline": stages_pipeline,
+        "stage_results": stage_results
     }
 
 
@@ -241,31 +906,37 @@ async def get_system_status():
             "loaded": 3,
             "list": [
                 {
-                    "name": "Qwen2.5-7B",
-                    "type": "Text/Reasoning",
-                    "status": "active",
-                    "vram_gb": 5.2,
-                    "vram_pct": 65,
-                    "tasks_today": random.randint(14, 28),
-                    "size": "7.2B params (Q4_K_M)"
-                },
-                {
                     "name": "Phi-3-Mini-4K",
                     "type": "Text/RAG",
                     "status": "active",
                     "vram_gb": 2.4,
                     "vram_pct": 30,
-                    "tasks_today": random.randint(8, 18),
-                    "size": "3.8B params (Q4_K_M)"
+                    "tasks_today": random.randint(12, 22),
+                    "size": "3.8B params (Q4_K_M)",
+                    "color": "#5B8DEF",
+                    "task_types": ["Policy Q&A", "ChromaDB RAG", "Guardian Review"]
+                },
+                {
+                    "name": "Qwen2.5-VL-7B",
+                    "type": "Vision/Document",
+                    "status": "active",
+                    "vram_gb": 9.2,
+                    "vram_pct": 65,
+                    "tasks_today": random.randint(18, 30),
+                    "size": "7.2B params (Q4_K_M)",
+                    "color": "#00C896",
+                    "task_types": ["OCR Inspection", "Table Extraction", "Engineering PDFs"]
                 },
                 {
                     "name": "DeepSeek-Coder-V2-Lite",
-                    "type": "Code",
+                    "type": "Code/Reasoning",
                     "status": "active",
                     "vram_gb": 8.4,
                     "vram_pct": 85,
-                    "tasks_today": random.randint(6, 14),
-                    "size": "15.7B params (Q4_K_M)"
+                    "tasks_today": random.randint(10, 18),
+                    "size": "15.7B params (Q4_K_M)",
+                    "color": "#F5A623",
+                    "task_types": ["Code Generation", "AST Syntax", "gVisor Sandbox"]
                 }
             ]
         },
@@ -315,13 +986,38 @@ async def get_audit_logs(
         logs = [l for l in logs if user.lower() in l["user"].lower()]
     
     summary = get_audit_summary()
+    verification = verify_log_chain()
     
     return {
         "logs": logs,
         "total": len(logs),
         "summary": summary,
-        "chain_verified": True,
+        "chain_verified": verification["chain_valid"],
+        "broken_at_entry": verification["broken_at_entry"],
         "verification_timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/audit/verify-chain")
+async def verify_audit_chain_endpoint():
+    """
+    Cryptographically walks the entire HMAC-SHA256 audit chain from genesis block
+    to verify integrity and detect any historical modification.
+    """
+    return verify_log_chain()
+
+
+@app.post("/api/audit/tamper-demo")
+async def tamper_audit_log_demo(entry_index: int = 0):
+    """
+    Demo endpoint: modifies an audit entry without updating the HMAC signature
+    to simulate an attacker editing historical records and prove tamper-detection.
+    """
+    tamper_result = tamper_demo_entry(entry_index)
+    verify_result = verify_log_chain()
+    return {
+        "tamper_result": tamper_result,
+        "verification_after_tamper": verify_result
     }
 
 
@@ -399,6 +1095,35 @@ async def get_network_monitor():
         "last_checked": now.isoformat(),
         "uptime_sovereign_hours": 14.3
     }
+
+
+@app.post("/api/output/generate-docx")
+async def export_docx_deliverable(request: DocxGenerateRequest):
+    """
+    Generates a properly formatted Microsoft Word document (.docx)
+    from task response content and returns it as a downloadable FileResponse.
+    """
+    sections = request.sections
+    if not sections:
+        sections = parse_markdown_to_sections(request.content or "")
+
+    filename = request.filename or "deliverable_report.docx"
+    if not filename.endswith(".docx"):
+        filename = f"{filename}.docx"
+
+    title = request.title or "Sovereign AI Deliverable Report"
+
+    file_path = generate_docx_report(
+        title=title,
+        sections=sections,
+        filename=filename
+    )
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
 
 @app.get("/api/health")

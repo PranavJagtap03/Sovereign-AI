@@ -1,33 +1,66 @@
+const DEFAULT_CONFIGS = {
+  'Phi-3-Mini-4K': {
+    type: 'Text / RAG',
+    vram_pct: 30,
+    tasks_today: 16,
+    size: '3.8B params (Q4_K_M)',
+    color: '#5B8DEF',
+    taskTypes: ['Policy Q&A', 'ChromaDB RAG', 'Guardian Review'],
+  },
+  'Qwen2.5-VL-7B': {
+    type: 'Vision / Document',
+    vram_pct: 65,
+    tasks_today: 22,
+    size: '7.2B params (Q4_K_M)',
+    color: '#00C896',
+    taskTypes: ['OCR Inspection', 'Table Extraction', 'Engineering PDFs'],
+  },
+  'Qwen2.5-7B': {
+    type: 'Text / Reasoning',
+    vram_pct: 65,
+    tasks_today: 17,
+    size: '7.2B params (Q4_K_M)',
+    color: '#00C896',
+    taskTypes: ['Executive Drafting', 'Policy Notes', 'Summaries'],
+  },
+  'DeepSeek-Coder-V2-Lite': {
+    type: 'Code / Reasoning',
+    vram_pct: 85,
+    tasks_today: 11,
+    size: '15.7B params (Q4_K_M)',
+    color: '#F5A623',
+    taskTypes: ['Code Generation', 'AST Syntax', 'gVisor Sandbox'],
+  },
+};
+
 export default function ModelRouter({ models }) {
-  const MODEL_DATA = models || [
-    {
-      name: 'Phi-3-Mini-4K',
-      type: 'Text / General',
-      vram_pct: 30,
-      tasks_today: 14,
-      size: '3.8B params',
-      color: '#5B8DEF',
-      taskTypes: ['Policy Q&A', 'RAG', 'Summary'],
-    },
-    {
-      name: 'Qwen2.5-VL-7B',
-      type: 'Vision / Document',
-      vram_pct: 65,
-      tasks_today: 22,
-      size: '7.6B params',
+  const MODEL_DATA = (models && Array.isArray(models) && models.length > 0
+    ? models
+    : [
+        { name: 'Phi-3-Mini-4K', ...DEFAULT_CONFIGS['Phi-3-Mini-4K'] },
+        { name: 'Qwen2.5-VL-7B', ...DEFAULT_CONFIGS['Qwen2.5-VL-7B'] },
+        { name: 'DeepSeek-Coder-V2-Lite', ...DEFAULT_CONFIGS['DeepSeek-Coder-V2-Lite'] },
+      ]
+  ).map(m => {
+    const fallback = DEFAULT_CONFIGS[m.name] || {
+      type: m.type || 'General AI',
+      vram_pct: m.vram_pct || 50,
+      tasks_today: m.tasks_today || 0,
+      size: m.size || 'Local Model',
       color: '#00C896',
-      taskTypes: ['OCR', 'Tables', 'Diagrams'],
-    },
-    {
-      name: 'DeepSeek-Coder-V2-Lite',
-      type: 'Code / Reasoning',
-      vram_pct: 85,
-      tasks_today: 11,
-      size: '15.7B params',
-      color: '#F5A623',
-      taskTypes: ['Code Gen', 'Review', 'Debug'],
-    },
-  ];
+      taskTypes: ['Local Inference', 'Sovereign Enclave'],
+    };
+
+    return {
+      name: m.name,
+      type: m.type || fallback.type,
+      vram_pct: m.vram_pct ?? fallback.vram_pct,
+      tasks_today: m.tasks_today ?? fallback.tasks_today,
+      size: m.size || fallback.size,
+      color: m.color || fallback.color,
+      taskTypes: m.taskTypes || m.task_types || fallback.taskTypes || ['Sovereign Task'],
+    };
+  });
 
   return (
     <div className="relative">
@@ -79,7 +112,7 @@ export default function ModelRouter({ models }) {
 
             {/* Task types */}
             <div className="flex flex-wrap gap-1 mb-3">
-              {model.taskTypes.map(t => (
+              {(model.taskTypes || []).map(t => (
                 <span key={t} className="text-[10px] px-2 py-0.5 rounded"
                   style={{ background: `${model.color}15`, color: model.color, border: `1px solid ${model.color}30` }}>
                   {t}

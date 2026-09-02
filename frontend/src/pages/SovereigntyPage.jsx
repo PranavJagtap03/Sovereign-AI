@@ -2,12 +2,14 @@ import NetworkMonitor from '../components/NetworkMonitor';
 import { Shield, Lock, Server, Eye } from 'lucide-react';
 
 const TECH_STACK = [
-  { name: 'gVisor Sandbox', desc: 'All model inference runs inside gVisor containers — syscall interception prevents network access', icon: '🔒', status: 'ACTIVE' },
-  { name: 'iptables Firewall', desc: 'OUTPUT chain: DROP all — no outbound connections possible at OS level', icon: '🧱', status: 'ACTIVE' },
-  { name: 'RBAC Enforcement', desc: 'Role-based access control via Keycloak (offline) — every request verified', icon: '🔑', status: 'ACTIVE' },
-  { name: 'AES-256-GCM Encryption', desc: 'All outputs encrypted at rest before storage — local key vault (HashiCorp Vault)', icon: '🔐', status: 'ACTIVE' },
-  { name: 'Ollama (Air-gapped)', desc: 'LLM inference via Ollama — models loaded from local NVMe, zero internet dependency', icon: '🤖', status: 'ACTIVE' },
-  { name: 'ChromaDB (Local)', desc: 'Vector database running entirely on localhost — no cloud sync, no telemetry', icon: '🗄️', status: 'ACTIVE' },
+  { name: 'gVisor Kernel Sandbox (runsc)', desc: 'Isolated container runtime with network disabled (--net=none) and read-only filesystem root.', icon: '🔒', status: 'ACTIVE' },
+  { name: 'iptables Kernel Firewall', desc: 'OUTPUT chain: DROP all — zero outbound egress packets possible at OS network stack.', icon: '🧱', status: 'ACTIVE' },
+  { name: 'Independent Guardian Agent', desc: 'Phi-3-Mini-4K independently reviews all high-impact assertions before release.', icon: '🛡️', status: 'ACTIVE' },
+  { name: 'HMAC-SHA256 Hash Chain', desc: 'Cryptographic tamper-evident hash chaining across every operation and audit entry.', icon: '⛓️', status: 'ACTIVE' },
+  { name: 'Stage 1 Input Guard Scanner', desc: 'Pre-inference regex and semantic scanner blocking adversarial jailbreak patterns.', icon: '🛑', status: 'ACTIVE' },
+  { name: 'Stage 2 Live PII Sanitizer', desc: 'Automatic redacting of email, phone, Aadhaar, and PAN tokens on live queries.', icon: '🧹', status: 'ACTIVE' },
+  { name: 'RBAC Clearance Enforcement', desc: 'Strict role-based document access control (Inspector / Engineer / Manager / Admin).', icon: '🔑', status: 'ACTIVE' },
+  { name: 'Local ChromaDB Vector Enclave', desc: 'Air-gapped vector store running entirely on localhost with zero external telemetry.', icon: '🗄️', status: 'ACTIVE' },
 ];
 
 export default function SovereigntyPage() {

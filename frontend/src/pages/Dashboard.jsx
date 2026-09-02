@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Cpu, Wifi, Database, Activity, Clock, CheckCircle } from 'lucide-react';
+import { Cpu, Wifi, Database, Activity, Clock, CheckCircle, Circle, ShieldCheck, Shield, ExternalLink, Zap } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useRiskCoverage } from '../context/RiskCoverageContext';
 import axios from 'axios';
 
 const RECENT_TASKS = [
@@ -55,6 +57,7 @@ function VramCard({ models }) {
 
 export default function Dashboard() {
   const [status, setStatus] = useState(null);
+  const { demonstrated, demonstratedCount, totalAttacks, attackClasses, networkStats } = useRiskCoverage();
 
   useEffect(() => {
     const load = async () => {
@@ -128,6 +131,117 @@ export default function Dashboard() {
           sub={`GPU: ${status?.gpu?.utilization_pct || 62}% util · ${status?.gpu?.temperature_c || 67}°C`}
           color="#F5A623"
         />
+      </div>
+
+      {/* Risk Coverage Scoreboard */}
+      <div className="card p-5 mb-6 border border-accent/25 bg-surface-secondary/40 shadow-lg">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent shrink-0">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-bold text-text-primary uppercase tracking-wider">
+                  Risk Coverage Score:
+                </h2>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-accent/20 text-accent font-bold">
+                  {demonstratedCount} / {totalAttacks} attack classes demonstrated
+                </span>
+              </div>
+              <p className="text-xs text-text-muted mt-0.5">
+                Real-time session containment verification across sovereign security layers
+              </p>
+            </div>
+          </div>
+
+          {/* Sovereignty Status Badge */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-success/10 border border-success/30 text-success self-start sm:self-auto">
+            <Shield size={14} className="shrink-0" />
+            <span className="text-xs font-semibold">Sovereignty Status:</span>
+            <span className="text-xs font-mono font-bold">
+              0 external calls, 0 bytes transferred
+            </span>
+            <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mb-4">
+          <div className="flex justify-between text-xs text-text-muted mb-1.5">
+            <span className="font-mono text-[11px]">Threat Containment Verification Progress</span>
+            <span className="font-mono font-bold text-accent">
+              {Math.round((demonstratedCount / totalAttacks) * 100)}% Demonstrated
+            </span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-surface overflow-hidden border border-gray-800">
+            <div
+              className="h-full bg-gradient-to-r from-accent to-success transition-all duration-700"
+              style={{ width: `${(demonstratedCount / totalAttacks) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* 9 Attack Classes Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+          {attackClasses.map(attack => {
+            const isDemonstrated = demonstrated[attack.id];
+            return (
+              <div
+                key={attack.id}
+                className={`p-3 rounded-lg border transition-all ${
+                  isDemonstrated
+                    ? 'bg-success/10 border-success/40 shadow-sm'
+                    : 'bg-surface/50 border-gray-800/60 opacity-60 hover:opacity-80'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <div className="shrink-0 mt-0.5">
+                      {isDemonstrated ? (
+                        <CheckCircle size={15} className="text-success" />
+                      ) : (
+                        <Circle size={15} className="text-text-muted opacity-40" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-xs font-semibold truncate ${
+                        isDemonstrated ? 'text-text-primary' : 'text-text-muted'
+                      }`}>
+                        {attack.name}
+                      </p>
+                      <span className="text-[10px] font-mono text-accent/80 block mt-0.5">
+                        {attack.stageLabel}
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                    isDemonstrated
+                      ? 'bg-success/20 text-success border border-success/40'
+                      : 'bg-gray-800 text-text-muted'
+                  }`}>
+                    {isDemonstrated ? 'CAUGHT ✓' : 'AWAITING DEMO'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-text-muted mt-1.5 leading-relaxed">
+                  {attack.description}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-3.5 pt-2.5 border-t border-gray-800/80 flex flex-col sm:flex-row items-center justify-between text-[11px] text-text-muted gap-2">
+          <span>Run attack tasks in Workbench or tamper demo in Audit Log to verify each threat class.</span>
+          <Link
+            to="/task"
+            className="text-accent hover:underline flex items-center gap-1 font-semibold"
+          >
+            Launch Attack Demos in Workbench →
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">

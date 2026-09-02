@@ -1,10 +1,16 @@
 import { useState } from 'react';
-import { Shield, Filter, ChevronDown } from 'lucide-react';
+import { Shield, Filter, ChevronDown, AlertTriangle, RefreshCw, Flame } from 'lucide-react';
 
 const TASK_TYPES = ['All', 'Document Analysis', 'Code Generation', 'Policy Q&A', 'Document Drafting', 'Code Review'];
 const MODELS = ['All', 'Qwen2.5-7B', 'Phi-3-Mini-4K', 'DeepSeek-Coder-V2-Lite', 'Qwen2.5-VL-7B'];
 
-export default function AuditLog({ logs }) {
+export default function AuditLog({
+  logs,
+  chainVerification,
+  isVerifying = false,
+  onVerifyChain = () => {},
+  onTamperDemo = () => {}
+}) {
   const [taskFilter, setTaskFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
 
@@ -14,16 +20,85 @@ export default function AuditLog({ logs }) {
     return taskOk && modelOk;
   });
 
+  const isChainValid = chainVerification ? chainVerification.chain_valid : true;
+
   return (
     <div>
-      {/* Tamper-evident badge */}
-      <div className="flex items-center gap-3 mb-4 p-3 rounded-lg"
-        style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
-        <Shield size={16} className="text-success" />
-        <span className="text-sm font-semibold text-success">Tamper-Evident Hash-Chain ✓</span>
-        <span className="text-xs text-text-muted">All entries SHA-256 hash-chained | Chain integrity: VERIFIED</span>
-        <span className="ml-auto badge-success text-[10px]">VERIFIED</span>
-      </div>
+      {/* Verification In Progress Banner */}
+      {isVerifying && (
+        <div className="mb-4 p-3.5 rounded-lg border border-accent/40 bg-accent/10 flex items-center justify-between text-xs text-accent animate-pulse">
+          <div className="flex items-center gap-2.5">
+            <RefreshCw size={16} className="animate-spin text-accent shrink-0" />
+            <div>
+              <p className="font-semibold text-text-primary">Walking HMAC-SHA256 Cryptographic Hash Chain...</p>
+              <p className="text-[11px] text-text-muted mt-0.5">
+                Verifying previous_hash linkage and HMAC signatures from genesis block across {logs?.length || 10} records.
+              </p>
+            </div>
+          </div>
+          <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-accent/20 border border-accent/30 font-bold">
+            VALIDATING HASHES
+          </span>
+        </div>
+      )}
+
+      {/* Tamper-evident badge / alert */}
+      {!isChainValid ? (
+        <div className="flex items-center justify-between gap-3 mb-4 p-3 rounded-lg border bg-accent-warn/10 border-accent-warn/30 text-accent-warn">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle size={18} className="text-accent-warn shrink-0" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider">⚠️ Cryptographic Chain Compromised!</p>
+              <p className="text-[11px] font-mono text-text-muted mt-0.5">
+                Tampering detected at entry #{chainVerification?.broken_at_entry} | {chainVerification?.reason || 'HMAC signature mismatch'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="badge-warn text-[10px]">BROKEN AT #{chainVerification?.broken_at_entry}</span>
+            <button
+              onClick={onVerifyChain}
+              disabled={isVerifying}
+              className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1"
+            >
+              <RefreshCw size={12} className={isVerifying ? 'animate-spin' : ''} />
+              Re-Verify
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 mb-4 p-3 rounded-lg"
+          style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
+          <div className="flex items-center gap-2.5">
+            <Shield size={16} className="text-success shrink-0" />
+            <div>
+              <span className="text-sm font-semibold text-success">Tamper-Evident Hash-Chain ✓</span>
+              <span className="text-xs text-text-muted ml-2">
+                HMAC-SHA256 chained · Genesis 0x00.. · {chainVerification?.total_entries || logs.length} entries intact
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onTamperDemo}
+              className="text-[11px] py-1 px-2.5 rounded bg-accent-warn/15 hover:bg-accent-warn/25 text-accent-warn border border-accent-warn/30 transition-colors flex items-center gap-1"
+              title="Simulate modifying a past record without updating HMAC"
+            >
+              <Flame size={12} />
+              Tamper Demo Entry
+            </button>
+            <button
+              onClick={onVerifyChain}
+              disabled={isVerifying}
+              className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1"
+            >
+              <RefreshCw size={12} className={isVerifying ? 'animate-spin' : ''} />
+              Verify Chain
+            </button>
+            <span className="badge-success text-[10px]">VERIFIED</span>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4">

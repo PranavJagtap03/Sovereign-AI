@@ -4,7 +4,8 @@ Simulates realistic AI model responses for demo purposes without a GPU.
 """
 
 import random
-from typing import Optional
+import re
+from typing import Optional, Dict, List, Any
 
 # ─── Pre-written realistic demo responses ────────────────────────────────────
 
@@ -233,7 +234,9 @@ REACT_LOOPS = {
         {"action": "implement_core_logic(method='z-score', threshold=3.0)", "observation": "Core logic complete. 47 lines generated."},
         {"thought": "Adding error handling, logging, and CLI interface for usability."},
         {"action": "add_error_handling() + add_cli_interface()", "observation": "Complete script: 89 lines, fully documented"},
-        {"action": "validate_code_syntax()", "observation": "✓ Syntax valid | ✓ No security issues | ✓ PEP8 compliant"}
+        {"action": "validate_code_syntax()", "observation": "✓ Syntax valid | ✓ No security issues | ✓ PEP8 compliant"},
+        {"thought": "Executing generated script in isolated gVisor container sandbox (net=none, fs=ro)."},
+        {"action": "execute_in_sandbox(language='python')", "observation": "Sandbox execution passed (gVisor runsc): exit 0 | 1420 readings processed | Memory peak: 32.6 MB"}
     ],
     "vision": [
         {"thought": "This appears to be a PDF engineering report. I'll use OCR to extract text and table structures."},
@@ -319,14 +322,46 @@ def get_react_loop(task_type: str) -> list:
     return REACT_LOOPS.get(task_type, REACT_LOOPS["text"])
 
 
-def get_pii_check_result() -> dict:
-    """Simulate PII detection result — always clean for demo."""
+# ─── Stage 2: Live PII Sanitizer ─────────────────────────────────────────────
+# NOTE: This runs on the LIVE USER QUERY only.
+# Document-level PII masking happens separately at ingestion time (Stage 12, not here).
+
+PII_PATTERNS = [
+    ("aadhaar", r"\b\d{4}\s\d{4}\s\d{4}\b", "[REDACTED-AADHAAR]"),
+    ("pan", r"\b[A-Za-z]{3}[ABCFGHLJPTabcfghljpt][A-Za-z]\d{4}[A-Za-z]\b", "[REDACTED-PAN]"),
+    ("email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "[REDACTED-EMAIL]"),
+    ("phone", r"(?:\+91[-\s]?)?\b\d{10}\b", "[REDACTED-PHONE]"),
+]
+
+
+def get_pii_check_result(task_text: str = "") -> dict:
+    """
+    Stage 2: Live PII Sanitizer.
+    Scans live user query text for sensitive PII entities (email, phone, Aadhaar, PAN)
+    and produces a sanitized masked preview with redaction placeholders.
+
+    NOTE: This runs on the LIVE USER QUERY only. Document-level PII masking happens
+    separately at ingestion time (Stage 12, not here).
+    """
+    masked_text = task_text or ""
+    entities_found = []
+
+    if task_text:
+        for entity_type, pattern, replacement in PII_PATTERNS:
+            if re.search(pattern, masked_text):
+                entities_found.append(entity_type)
+                masked_text = re.sub(pattern, replacement, masked_text)
+
+    pii_detected = len(entities_found) > 0
+
     return {
-        "pii_detected": False,
-        "entities_scanned": random.randint(120, 340),
-        "scan_duration_ms": random.randint(18, 45),
+        "pii_detected": pii_detected,
+        "entities_found": entities_found,
+        "entities_scanned": max(len((task_text or "").split()), random.randint(120, 340)),
+        "scan_duration_ms": random.randint(14, 38),
         "patterns_checked": ["email", "phone", "aadhaar", "pan", "bank_account", "ip_address", "name"],
-        "result": "CLEAN"
+        "result": "PII_DETECTED_AND_MASKED" if pii_detected else "CLEAN",
+        "masked_preview": masked_text
     }
 
 
@@ -358,7 +393,7 @@ def get_rag_results(task_type: str) -> dict:
             "retrieved": True,
             "collection": "internal_docs",
             "chunks": 3,
-            "sources": ["SOP_Manual_v2.pdf"],
+            "sources": ["SOP_Manual_v2.pdf", "HR_Leave_Policy.pdf"],
             "top_similarity": 0.94,
             "query_time_ms": 31
         },

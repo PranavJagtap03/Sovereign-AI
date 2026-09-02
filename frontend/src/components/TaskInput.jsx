@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload, FileText, Image, FileSpreadsheet, FileCode, X } from 'lucide-react';
 
 const FORMAT_OPTIONS = ['Word Doc', 'Excel', 'PowerPoint', 'Code', 'JSON'];
@@ -26,12 +26,32 @@ function getFileIcon(filename) {
   return FILE_ICONS[ext] || FileText;
 }
 
-export default function TaskInput({ onSubmit, isLoading }) {
-  const [task, setTask] = useState('');
-  const [format, setFormat] = useState('Word Doc');
+export default function TaskInput({
+  onSubmit,
+  isLoading,
+  initialTask = '',
+  initialFormat = 'Word Doc',
+  userRole = 'inspector',
+  onRoleChange
+}) {
+  const [task, setTask] = useState(initialTask);
+  const [format, setFormat] = useState(initialFormat);
+  const [role, setRole] = useState(userRole);
   const [file, setFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (initialTask) setTask(initialTask);
+  }, [initialTask]);
+
+  useEffect(() => {
+    if (initialFormat) setFormat(initialFormat);
+  }, [initialFormat]);
+
+  useEffect(() => {
+    if (userRole) setRole(userRole);
+  }, [userRole]);
 
   const handleFile = (f) => {
     if (f) setFile(f);
@@ -46,7 +66,7 @@ export default function TaskInput({ onSubmit, isLoading }) {
 
   const handleSubmit = () => {
     if (!task.trim() && !file) return;
-    onSubmit({ task: task.trim(), format, file });
+    onSubmit({ task: task.trim(), format, file, user_role: role });
   };
 
   const handleKeyDown = (e) => {
@@ -127,6 +147,46 @@ export default function TaskInput({ onSubmit, isLoading }) {
           accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.py,.txt"
           onChange={e => handleFile(e.target.files[0])}
         />
+      </div>
+
+      {/* RBAC Role Selector Dropdown */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="user-role-select" className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
+            User Role (RBAC Clearance)
+          </label>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent">
+            Clearance: {role === 'inspector' ? 'Internal' : role === 'engineer' ? 'Restricted' : role === 'manager' ? 'Confidential' : 'Highly Confidential'}
+          </span>
+        </div>
+        <div className="relative">
+          <select
+            id="user-role-select"
+            value={role}
+            onChange={e => {
+              const newRole = e.target.value;
+              setRole(newRole);
+              if (onRoleChange) onRoleChange(newRole);
+            }}
+            className="w-full rounded-lg px-3.5 py-2.5 text-sm text-text-primary outline-none transition-all cursor-pointer appearance-none pr-9 border"
+            style={{
+              background: '#1A2E4A',
+              borderColor: 'rgba(0,200,150,0.3)',
+              fontFamily: 'Inter, sans-serif'
+            }}
+          >
+            <option value="inspector">Inspector (Clearance: Internal — Public/Non-Sensitive)</option>
+            <option value="engineer">Engineer (Clearance: Restricted — Technical Docs & Operations)</option>
+            <option value="manager">Manager (Clearance: Confidential — HR & Personnel Data)</option>
+            <option value="admin">Admin (Clearance: Highly Confidential — Executive / All)</option>
+          </select>
+          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted text-xs">
+            ▼
+          </div>
+        </div>
+        <p className="text-[11px] text-text-muted mt-1">
+          Switch roles to live-demo RBAC document filtering on the exact same task.
+        </p>
       </div>
 
       {/* Output format selector */}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import AuditLog from '../components/AuditLog';
 import axios from 'axios';
 import { ScrollText } from 'lucide-react';
+import { useRiskCoverage } from '../context/RiskCoverageContext';
 
 // Offline mock audit logs
 const buildMockLogs = () => {
@@ -22,15 +23,56 @@ const buildMockLogs = () => {
 
 export default function AuditPage() {
   const [logs, setLogs] = useState(buildMockLogs());
+  const [chainVerification, setChainVerification] = useState({
+    chain_valid: true,
+    total_entries: 10,
+    broken_at_entry: null,
+    message: 'All entries cryptographically verified against HMAC-SHA256 root.'
+  });
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const fetchLogs = async () => {
+    try {
+      const res = await axios.get('http://localhost:8000/api/audit/logs', { timeout: 3000 });
+      if (res.data?.logs) {
+        setLogs(res.data.logs);
+      }
+    } catch { /* use mock */ }
+  };
+
+  const handleVerifyChain = async () => {
+    setIsVerifying(true);
+    try {
+      const res = await axios.get('http://localhost:8000/api/audit/verify-chain', { timeout: 3000 });
+      setChainVerification(res.data);
+    } catch (err) {
+      console.error('Failed to verify audit chain:', err);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const { recordAttackDemonstration } = useRiskCoverage();
+
+  const handleTamperDemo = async () => {
+    try {
+      const res = await axios.post('http://localhost:8000/api/audit/tamper-demo', null, {
+        params: { entry_index: 2 },
+        timeout: 3000
+      });
+      if (res.data?.verification_after_tamper) {
+        setChainVerification(res.data.verification_after_tamper);
+      }
+      recordAttackDemonstration('log_tampering');
+      await fetchLogs();
+    } catch (err) {
+      console.error('Failed to simulate tamper:', err);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await axios.get('http://localhost:8000/api/audit/logs', { timeout: 3000 });
-        setLogs(res.data.logs);
-      } catch { /* use mock */ }
-    };
-    load();
+    fetchLogs();
+    handleVerifyChain();
   }, []);
 
   return (
@@ -40,9 +82,15 @@ export default function AuditPage() {
           <ScrollText size={20} className="text-accent" />
           Audit Log
         </h1>
-        <p className="text-sm text-text-muted mt-0.5">Immutable, hash-chained record of all AI operations</p>
+        <p className="text-sm text-text-muted mt-0.5">Immutable, HMAC-SHA256 hash-chained record of all AI operations</p>
       </div>
-      <AuditLog logs={logs} />
+      <AuditLog
+        logs={logs}
+        chainVerification={chainVerification}
+        isVerifying={isVerifying}
+        onVerifyChain={handleVerifyChain}
+        onTamperDemo={handleTamperDemo}
+      />
     </div>
   );
 }

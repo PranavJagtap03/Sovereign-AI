@@ -86,7 +86,7 @@ export function useAgentStream() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const run = useCallback(async ({ task, format, file, scenario }) => {
+  const run = useCallback(async ({ task, format, file, scenario, user_role = 'inspector' }) => {
     setIsLoading(true);
     setResult(null);
     setError(null);
@@ -97,6 +97,7 @@ export function useAgentStream() {
         output_format: format,
         file_name: file?.name || null,
         scenario: scenario || null,
+        user_role: user_role || 'inspector',
       };
 
       const response = await axios.post(`${API_BASE}/api/agent/run`, payload, {
@@ -131,5 +132,5 @@ export function useAgentStream() {
     setError(null);
   }, []);
 
-  return { run, isLoading, result, error, reset };
+  return { run, isLoading, result, setResult, error, reset };
 }
