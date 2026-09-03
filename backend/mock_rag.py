@@ -296,9 +296,8 @@ def _assign_collection(file_type: str, filename: str) -> str:
     return "internal_docs"
 
 
-# Import get_rag_results for backward-compatible fallback
-from mock_llm import get_rag_results
-
+# Backward-compatible fallback — get_rag_results lives in mock_llm_deprecated
+from mock_llm_deprecated import get_rag_results
 
 def get_mock_chunks(category: str = "approval", user_role: Optional[str] = None) -> list:
     """
