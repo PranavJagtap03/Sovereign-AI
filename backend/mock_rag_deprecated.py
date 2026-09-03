@@ -28,7 +28,6 @@ USER_CLEARANCE: Dict[str, str] = {
 
 def check_access(user_role: str, doc_sensitivity: str) -> bool:
     """
-    
     Stage 4: Authorization / RBAC Filter check.
     Compares user role clearance level against document sensitivity.
     Returns True if user clearance is greater than or equal to document sensitivity.
@@ -297,7 +296,7 @@ def _assign_collection(file_type: str, filename: str) -> str:
 
 
 # Import get_rag_results for backward-compatible fallback
-from mock_llm import get_rag_results
+from mock_llm_deprecated import get_rag_results
 
 
 def get_mock_chunks(category: str = "approval", user_role: Optional[str] = None) -> list:

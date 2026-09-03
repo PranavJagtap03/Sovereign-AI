@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import asyncio
 from main import run_agent, AgentRunRequest
-from mock_audit import verify_log_chain, tamper_demo_entry
+from stage13_audit_ledger import verify_log_chain, tamper_demo_entry
 
 async def test_all_presets():
     print("Testing 13 Preset Scenarios...")

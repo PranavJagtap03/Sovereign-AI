@@ -15,20 +15,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel
 
-from mock_llm import (
-    classify_task, get_model_info, get_demo_response,
-    get_react_loop, get_pii_check_result, get_rag_results
+from stage1_injection_guard import check_prompt_injection
+from stage2_pii_sanitizer import get_pii_check_result
+from stage3_task_classifier import classify_task
+from stage4_rbac_filter import USER_CLEARANCE
+from stage5_model_router import get_model_info
+from stage6_knowledge_retrieval import (
+    get_all_documents, get_rag_stats, simulate_indexing, get_authorized_rag_results
 )
-from mock_rag import (
-    get_all_documents, get_rag_stats, simulate_indexing,
-    get_authorized_rag_results, USER_CLEARANCE
+from stage7_primary_agent import run_primary_agent, get_demo_response, get_react_loop
+from stage8_guardian_agent import guardian_review
+from stage9_tool_validator import validate_tool_call
+from stage10_budget_guard import check_resource_budget, parse_action_call
+from stage11_sandbox import execute_in_sandbox
+from stage12_output_generator import generate_docx_report, parse_markdown_to_sections
+from stage13_audit_ledger import (
+    generate_audit_logs, get_audit_summary, append_log_entry,
+    verify_log_chain, tamper_demo_entry
 )
-from mock_audit import generate_audit_logs, get_audit_summary, append_log_entry, verify_log_chain, tamper_demo_entry
-from input_guard import check_prompt_injection
-from guardian import guardian_review
-from execution_guard import validate_tool_call, check_resource_budget, parse_action_call
-from sandbox import execute_in_sandbox
-from output_generator import generate_docx_report, parse_markdown_to_sections
 from real_llm import call_ollama, call_ollama_vision, check_ollama_health
 
 # ─── App setup ────────────────────────────────────────────────────────────────
@@ -635,63 +639,40 @@ async def run_agent(request: AgentRunRequest):
             }
         }
 
-    # ─── Stage 8: Guardian Agent (Independent Review) ─────────────────────────
-    final_response = get_demo_response(task_type)
-    base_ms = random.randint(2800, 4200)
-    reasoning_trace = None
-    live_inference_attempted = False
-    fell_back_to_demo = False
-    live_fallback_reason = None
-    real_inference_time_ms = 0
-    real_model_name = None
+    # ─── Stage 7: Primary Agent — real inference via stage7_primary_agent.py ──
+    # Determines live vs. demo, selects correct Ollama model, handles all fallback.
+    agent_result = run_primary_agent(
+        task_text=effective_task,
+        task_type=task_type,
+        rag_context=rag_result,
+        file_data=request.file_data or request.file_name,
+        live_mode=request.live_mode,
+        timeout_s=90,
+    )
 
-    if request.live_mode:
-        live_inference_attempted = True
-        if task_type in ("text", "analysis"):
-            if check_ollama_health():
-                print(f"[LIVE MODE] Dispatching task to local Ollama (DeepSeek-R1)...")
-                ollama_res = call_ollama(prompt=request.task, model="deepseek-r1:latest", timeout_s=60)
-                if ollama_res.get("success"):
-                    final_response = ollama_res.get("final_answer") or final_response
-                    reasoning_trace = ollama_res.get("reasoning_trace")
-                    real_inference_time_ms = ollama_res.get("inference_time_ms", 0)
-                    real_model_name = ollama_res.get("model_used", "deepseek-r1:latest")
-                    base_ms += real_inference_time_ms
-                    model_info = dict(model_info)
-                    model_info["model"] = "DeepSeek-R1 (Local GPU)"
-                else:
-                    fell_back_to_demo = True
-                    live_fallback_reason = ollama_res.get("error", "Ollama inference error")
-                    print(f"[LIVE MODE FALLBACK] {live_fallback_reason}")
-        elif task_type == "vision":
-            img_target = request.file_data or request.file_name or "sample_inspection_report.png"
-            if check_ollama_health():
-                print(f"[LIVE MODE] Dispatching vision task to local Ollama (Qwen2.5-VL)...")
-                vision_res = call_ollama_vision(
-                    image_path=img_target,
-                    prompt=request.task,
-                    model="qwen2.5vl:7b",
-                    timeout_s=60
-                )
-                if vision_res.get("success"):
-                    final_response = vision_res.get("final_answer") or final_response
-                    real_inference_time_ms = vision_res.get("inference_time_ms", 0)
-                    real_model_name = vision_res.get("model_used", "qwen2.5vl:7b")
-                    base_ms += real_inference_time_ms
-                    model_info = dict(model_info)
-                    model_info["model"] = "Qwen2.5-VL (Local GPU)"
-                else:
-                    fell_back_to_demo = True
-                    live_fallback_reason = vision_res.get("error", "Ollama vision inference error")
-                    print(f"[LIVE MODE FALLBACK - VISION] {live_fallback_reason}")
-            else:
-                fell_back_to_demo = True
-                live_fallback_reason = "Ollama daemon unreachable at http://localhost:11434"
-                print(f"[LIVE MODE FALLBACK] {live_fallback_reason}")
+    final_response = agent_result["final_response"]
+    reasoning_trace = agent_result["reasoning_trace"]
+    live_inference_attempted = agent_result["live_inference_attempted"]
+    fell_back_to_demo = agent_result["fell_back_to_demo"]
+    live_fallback_reason = agent_result["fallback_reason"]
+    real_inference_time_ms = agent_result["inference_time_ms"]
+    real_model_name = agent_result["model_name"]
+    base_ms = real_inference_time_ms if real_inference_time_ms else random.randint(2800, 4200)
+
+    # Update model display label when real inference was used
+    if real_model_name and not fell_back_to_demo:
+        model_info = dict(model_info)
+        if task_type == "vision":
+            model_info["model"] = "Qwen2.5-VL (Local GPU via Ollama)"
         else:
-            fell_back_to_demo = True
-            live_fallback_reason = f"Live inference not available for task type '{task_type}'"
+            model_info["model"] = "DeepSeek-R1 (Local GPU via Ollama)"
 
+    if request.live_mode and not fell_back_to_demo:
+        print(f"[STAGE 7 LIVE] Real inference complete: model={real_model_name} time={real_inference_time_ms}ms")
+    elif request.live_mode and fell_back_to_demo:
+        print(f"[STAGE 7 FALLBACK] {live_fallback_reason}")
+
+    # Demo trigger: overconfident safety claim (Guardian escalation test)
     if any(k in request.task.lower() for k in ["safe to operate", "overconfident", "without inspection"]):
         final_response = (
             "Equipment Telemetry Assessment:\n\n"
@@ -699,6 +680,7 @@ async def run_agent(request: AgentRunRequest):
             "and approved for immediate production without manual inspection."
         )
     guardian_result = guardian_review(final_response, task_type)
+
     is_pending_approval = guardian_result.get("requires_human_approval", False)
     append_log_entry(
         event_type="STAGE_8_GUARDIAN_REVIEW",

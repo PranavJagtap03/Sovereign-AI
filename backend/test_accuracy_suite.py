@@ -25,10 +25,12 @@ if hasattr(sys.stdout, "reconfigure"):
 # Add parent directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from mock_llm import classify_task, get_pii_check_result
-from input_guard import check_prompt_injection
-from mock_rag import check_access
-from execution_guard import check_resource_budget, validate_tool_call
+from stage3_task_classifier import classify_task
+from stage2_pii_sanitizer import get_pii_check_result
+from stage1_injection_guard import check_prompt_injection
+from stage4_rbac_filter import check_access
+from stage10_budget_guard import check_resource_budget
+from stage9_tool_validator import validate_tool_call
 
 
 class AccuracyTestSuite:

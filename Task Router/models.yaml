@@ -1,0 +1,28 @@
+# Model registry — add/remove/edit models here, no code changes needed.
+# priority: lower number = tried first within a task_type
+# endpoint: base URL of the inference runtime serving this model (Ollama/vLLM etc.)
+
+models:
+  - name: qwen2.5-coder-7b
+    task_types: [coding]
+    vram_gb: 5
+    endpoint: http://localhost:11434
+    priority: 1
+
+  - name: llama-3.1-8b
+    task_types: [document, qa]
+    vram_gb: 5
+    endpoint: http://localhost:11434
+    priority: 1
+
+  - name: mistral-7b
+    task_types: [document, qa, spreadsheet]
+    vram_gb: 5
+    endpoint: http://localhost:11434
+    priority: 2   # fallback for document/qa if llama-3.1-8b is unavailable
+
+  - name: llava-1.6
+    task_types: [vision]
+    vram_gb: 8
+    endpoint: http://localhost:11434
+    priority: 1

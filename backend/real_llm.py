@@ -226,3 +226,71 @@ def call_ollama_vision(
             "success": False,
             "error": f"Ollama vision inference exception: {str(e)}"
         }
+
+
+def call_ollama_with_base64(
+    prompt: str,
+    image_base64: str,
+    model: str = DEFAULT_VISION_MODEL,
+    timeout_s: int = 60
+) -> dict:
+    """
+    Calls local Ollama instance for vision inference with a pre-decoded base64 image.
+
+    This is a thin wrapper around the Ollama /api/generate multimodal endpoint for
+    callers (e.g. stage7_primary_agent) that already have a base64 string from
+    request.file_data, bypassing the filesystem path-resolution logic in
+    call_ollama_vision().
+
+    Args:
+        prompt:       Text prompt to accompany the image.
+        image_base64: Raw base64-encoded image string (no data URI prefix needed).
+        model:        Ollama vision model tag (default: qwen2.5vl:7b).
+        timeout_s:    Request timeout in seconds (default: 60).
+
+    Returns:
+        dict: Same shape as call_ollama_vision() — keys: success, final_answer,
+              model_used, inference_time_ms (on success) or error (on failure).
+    """
+    # Strip data URI prefix if accidentally included
+    if image_base64.startswith("data:image"):
+        image_base64 = image_base64.split(",", 1)[1].strip()
+
+    start_time = time.perf_counter()
+    url = f"{OLLAMA_BASE_URL}/api/generate"
+    payload = json.dumps({
+        "model": model,
+        "prompt": prompt,
+        "images": [image_base64],
+        "stream": False
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "SovereignAI-Workbench/1.0"}
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as response:
+            if response.status != 200:
+                return {
+                    "success": False,
+                    "error": f"Ollama HTTP {response.status}: {response.reason}"
+                }
+            raw_data = json.loads(response.read().decode("utf-8"))
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return {
+                "success": True,
+                "final_answer": raw_data.get("response", "").strip(),
+                "model_used": raw_data.get("model", model),
+                "inference_time_ms": elapsed_ms
+            }
+
+    except urllib.error.URLError as e:
+        return {"success": False, "error": f"Ollama connection error: {e.reason}"}
+    except TimeoutError:
+        return {"success": False, "error": f"Ollama request timed out after {timeout_s}s"}
+    except Exception as e:
+        return {"success": False, "error": f"Ollama base64 vision exception: {str(e)}"}
+
